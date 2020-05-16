@@ -560,9 +560,9 @@ void adjoint_kernel_PSV(int ishot, // shot index
     gpuErrchk(cudaMemcpy(d_mem_vz_x, mem_vz_x[0], nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_mem_vz_z, mem_vz_z[0], nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyHostToDevice));
 
-    /* gpuErrchk(cudaMemcpy(d_sxx, sxx[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
+     gpuErrchk(cudaMemcpy(d_sxx, sxx[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
      gpuErrchk(cudaMemcpy(d_szx, szx[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
-     gpuErrchk(cudaMemcpy(d_szz, szz[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));*/
+     gpuErrchk(cudaMemcpy(d_szz, szz[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_lam, lam[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_mu, mu[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
 
