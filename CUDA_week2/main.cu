@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
     }
 
 
-   delete model;
+   delete model;//This was giving error after kernel execution, while deallocation
     std::cout << argc << std::endl << "PROGRAM COMPLETE." << std::endl;
 
     exit(0);
