@@ -128,18 +128,12 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
             vz_x = dxi * hc[1] * (vz[iz * nzt + (ix + 1)] - vz[iz * nzt + ix]);
             vx_z = dzi * hc[1] * (vx[(iz + 1) * nzt + ix] - vx[iz * nzt + ix]);
             vz_z = dzi * hc[1] * (vz[iz * nzt + ix] - vz[(iz - 1) * nzt + ix]);
-            //************************************************************************************************
-
+           
     // ---------------------------------------------------
     // CPML layers for stress tensor kernel
     // ---------------------------------------------------
 
 
-
-
-        // ---------------------------------------------------
-        // CPML layers for stress tensor kernel
-         //---------------------------------------------------
 
             if (npml > 0) {
 
@@ -230,14 +224,7 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
                 sxx[fpad * nzt + ix] = 4.0 * dt * vx_x * (lam[fpad * nzt + ix] * mu[fpad * nzt + ix] + mu[fpad * nzt + ix] * mu[fpad * nzt + ix])
                     / (lam[fpad * nzt + ix] + 2.0 * mu[fpad * nzt + ix]);
 
-
-
-
-
             }
-
-
-
 
         }
         else {
@@ -563,7 +550,7 @@ void adjoint_kernel_PSV(int ishot, // shot index
     gpuErrchk(cudaMalloc((void**)&d_mem_szx_z, size * sizeof(real_sim)));
 
     size = nzt * nxt;
-    // std::cout << "First\n" << vz[jjs][iis] << "\n";
+    
 
      //*****************
           // updating velocity tensors

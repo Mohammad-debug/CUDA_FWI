@@ -1,4 +1,3 @@
-//forward_kernel_PSV.cpp
 
 /*
 * Created by: Min Basnet
@@ -91,25 +90,14 @@ __global__ void kernel_one(int ishot, int nt, int nzt, int nxt, int fpad, int pp
 //**********************************************************************************************************
 
 
-    //int k = blockIdx.x * blockDim.x + threadIdx.x;
-    //int ix = k % nx2;
-    //int iz = k % nz2;
     int iz = blockIdx.x * blockDim.x + threadIdx.x;
     int ix = blockIdx.y * blockDim.y + threadIdx.y;
-
-    //if (threadIdx.x == 0 && blockIdx.x == 0)
-    //    printf("Debug Params : . ..");
-
-    ////***********************************************
-    //switch (fdorder) {
-    //case(2): {
-
-    //    // Calculate spatial velocity derivatives
 
 
     switch (fdorder) {
     case(2):
         if (ix < nx2 && ix >= nx1 && iz >= nz1 && iz < nz2)
+
         {
 
             // Calculate spatial velocity derivatives
@@ -196,9 +184,7 @@ __global__ void kernel_one(int ishot, int nt, int nzt, int nxt, int fpad, int pp
 
             }    // npml>0
             __syncthreads();
-            //// --------------------------------------------------------------------------
-            //// --------------------------------------------------------------------------
-
+            
             ////// updating stresses
 
             szx[iz * nzt + ix] += dt * mu_zx[iz * (nzt - 1) + ix] * (vz_x + vx_z);
@@ -206,8 +192,6 @@ __global__ void kernel_one(int ishot, int nt, int nzt, int nxt, int fpad, int pp
             szz[iz * nzt + ix] += dt * (lam[iz * nzt + ix] * (vx_x + vz_z) + (2.0f * mu[iz * nzt + ix] * vz_z));
 
 
-            // -----------------------------------------
-   // ----------------------------------------- 
    // Override stress for free surface implementation
 
             if (fsurf && iz == fpad) {
@@ -221,11 +205,7 @@ __global__ void kernel_one(int ishot, int nt, int nzt, int nxt, int fpad, int pp
 
 
 
-
-
             }
-
-
 
 
         }
@@ -569,9 +549,7 @@ void forward_kernel_PSV(int ishot, // shot number
     gpuErrchk(cudaMalloc((void**)&d_mem_szx_z, size * sizeof(real_sim)));
 
     size = nzt * nxt;
-    // std::cout << "First\n" << vz[jjs][iis] << "\n";
-
-     //*****************
+ 
           // updating velocity tensors
 
     gpuErrchk(cudaMemcpy(d_mem_vx_x, mem_vx_x[0], nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyHostToDevice));
@@ -597,14 +575,12 @@ void forward_kernel_PSV(int ishot, // shot number
     gpuErrchk(cudaMemcpy(d_mem_szx_z, mem_szx_z[0], nxt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyHostToDevice));
 
 
-
     gpuErrchk(cudaMemcpy(d_a, a, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_b, b, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_K, K, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_a_half, a_half, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_b_half, b_half, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_K_half, K_half, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
-
 
     gpuErrchk(cudaMemcpy(d_vx, vx[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
    
@@ -654,21 +630,13 @@ void forward_kernel_PSV(int ishot, // shot number
                 fwi_dz, fwi_dx, nft, nfz, nfx, d_fwi_sxx, d_fwi_szx, d_fwi_szz, d_fwi_vx,
                 d_fwi_vz, d_sxx, d_szx, d_szz, d_vx, d_vz);
 
-           
-
         }
-        // --------------------------------------------------------
 
         //******************************************GPU****************************************
 
 
-
-
-
-
-
-
         gpuErrchk(cudaMemcpy(d_vz, vz[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
+
         // Calculate spatial velocity derivatives
         kernel_one << < blocksPerGrid, threadsPerBlock >> > (ishot, nt, nzt, nxt, fpad, ppad, dt, dx, dz,
             fdorder, d_vx, d_vz, d_sxx,
@@ -693,17 +661,10 @@ void forward_kernel_PSV(int ishot, // shot number
 
         gpuErrchk(cudaMemcpy(vz[0], d_vz, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
 
-
         if (fsurf) { // Mirroring stresses for free surface condition
 
             kernel_Thri << < blocksPerGrid, threadsPerBlock >> > (nx1, nx2, fpad, nzt, d_szx, d_szz);
 
-            //for (int ix = nx1; ix < nx2; ix++) {
-            //    for (int sz = 1; sz <= fpad; sz++) { // mirroring 
-            //        szx[fpad - sz][ix] = -szx[fpad + sz][ix];
-            //        szz[fpad - sz][ix] = -szz[fpad + sz][ix];
-            //    }
-            //}
         }
 
 
@@ -713,7 +674,7 @@ void forward_kernel_PSV(int ishot, // shot number
 
 
                 // Adding Velocity update related sources
-             //   std::cout << "Reached Here4" << "\n";
+
                 //--------------------------
         for (int is = 0; is < nsrc; is++) {
 
@@ -725,7 +686,7 @@ void forward_kernel_PSV(int ishot, // shot number
             }
         }
 
-        // ------------------------------------
+ 
 
         // Recording the signals to the receivers
         for (int ir = 0; ir <= 0 /*nrec*/; ir++) {
@@ -760,7 +721,7 @@ void forward_kernel_PSV(int ishot, // shot number
 
 
 
-        // std::cout << "Reached Here6" << "\n";
+        
     } // end of time loop
 
     //******************************memcopy back to host************************************
@@ -770,7 +731,6 @@ void forward_kernel_PSV(int ishot, // shot number
     gpuErrchk(cudaMemcpy(fwi_sxx[0][0], d_fwi_sxx, (nft * nfz * nfx) * sizeof(real_sim), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(fwi_szx[0][0], d_fwi_szx, (nft * nfz * nfx) * sizeof(real_sim), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(fwi_szz[0][0], d_fwi_szz, (nft * nfz * nfx) * sizeof(real_sim), cudaMemcpyDeviceToHost));
-
 
     gpuErrchk(cudaMemcpy(vx[0], d_vx, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(sxx[0], d_sxx, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
@@ -787,7 +747,6 @@ void forward_kernel_PSV(int ishot, // shot number
     gpuErrchk(cudaMemcpy(mem_vx_z[0], d_mem_vx_z, nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(mem_vz_x[0], d_mem_vz_x, nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(mem_vz_z[0], d_mem_vz_z, nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
-
 
     gpuErrchk(cudaMemcpy(mem_sxx_x[0], d_mem_sxx_x, nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(mem_szx_x[0], d_mem_szx_x, nzt * 2 * (npml + 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));

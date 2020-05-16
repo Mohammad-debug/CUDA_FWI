@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
     }
 
 
-    //delete model;
+   delete model;
     std::cout << argc << std::endl << "PROGRAM COMPLETE." << std::endl;
 
     exit(0);
