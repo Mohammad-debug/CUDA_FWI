@@ -55,6 +55,7 @@
     </Link>
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <MaxRegCount>0</MaxRegCount>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -74,10 +75,11 @@
     </Link>
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <MaxRegCount>0</MaxRegCount>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CudaCompile Include="adjoint_kernel_PSV.cu" />
+    <CudaCompile Include="adjoint_kernel_PSV_GPU.cu" />
     <CudaCompile Include="fd_cpml.cu" />
     <CudaCompile Include="fd_fwi.cu" />
     <CudaCompile Include="fd_grid.cu" />
@@ -85,7 +87,7 @@
     <CudaCompile Include="fd_seismogram.cu" />
     <CudaCompile Include="fd_wave.cu" />
     <CudaCompile Include="fd_wave_model.cu" />
-    <CudaCompile Include="forward_kernel_PSV.cu" />
+    <CudaCompile Include="forward_kernel_PSV_GPU.cu" />
     <CudaCompile Include="main.cu" />
     <CudaCompile Include="util.cu" />
   </ItemGroup>
