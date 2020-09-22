@@ -218,6 +218,7 @@ void FDWaveModel::fwi_simulate() {
     const int nfz = 1 + (fwi.z2 - fwi.z1) / fwi.dz;
     const int nfx = 1 + (fwi.x2 - fwi.x1) / fwi.dx;
     //Time stamp
+
     clock_t start = 0, end = 0;
     double start1 = 0;
     double cpu_time_used;
@@ -230,9 +231,9 @@ void FDWaveModel::fwi_simulate() {
     medium.stagger_over_grid(grid.nzt, grid.nxt); // Initializing density and lame's parameter over staggered grid
 //PARAMS SET
 
-    bool gpu_comp = true;
+    bool gpu_comp = false;
 
-    maxIter = 10;//iteration set
+    maxIter = 30;//iteration set
 
 
     if (gpu_comp == true) {
@@ -251,7 +252,7 @@ void FDWaveModel::fwi_simulate() {
         }
 
         // Allocation of FWI related parameters
-        fwi.allocate_fwi(nft, nfz, nfx);
+      //  fwi.allocate_fwi(nft, nfz, nfx);
 
 
         // ------------------------------------------
@@ -348,11 +349,11 @@ void FDWaveModel::fwi_simulate() {
         const int nfz = 1 + (fwi.z2 - fwi.z1) / fwi.dz;
         const int nfx = 1 + (fwi.x2 - fwi.x1) / fwi.dx;
 
-        gpuErrchk(cudaMalloc((void**)&d_fwi_vx, (nft * nfz * nfx) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_vz, (nft * nfz * nfx) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_sxx, (nft * nfz * nfx) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_szx, (nft * nfz * nfx) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_szz, (nft * nfz * nfx) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_vx, (grid.nt * grid.nzt * grid.nxt) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_vz, (grid.nt* grid.nzt* grid.nxt) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_sxx, (grid.nt* grid.nzt* grid.nxt) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_szx, (grid.nt* grid.nzt* grid.nxt) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_szz, (grid.nt* grid.nzt* grid.nxt) * sizeof(real_sim)));
 
         
         real_sim* d_grad_lam;
@@ -380,6 +381,7 @@ void FDWaveModel::fwi_simulate() {
         gpuErrchk(cudaMalloc((void**)&d_rho_zp, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_rho_xp, size * sizeof(real_sim)));
 
+
         //******************************************************************
         cudaSetDevice(0);
         while (diff_L2 >= maxError) {
@@ -389,7 +391,7 @@ void FDWaveModel::fwi_simulate() {
 
                 cpu_time_used = ((double)(end - start1)) / CLOCKS_PER_SEC;
 
-                printf("\n TOTAL PROGRAM Execution time before exit a  = %f TOTAL ITERATIONS=%d\n", cpu_time_used, maxIter);
+                printf("\n TOTAL PROGRAM(GPU) Execution time before exit a  = %f TOTAL ITERATIONS=%d\n", cpu_time_used, maxIter);
 
                 std::cout << "Error: convergence not reached within maximum iteration" << std::endl;
                 break;
@@ -535,140 +537,262 @@ void FDWaveModel::fwi_simulate() {
     else { // Computation only in CPU
 
       // Allocation for parallel processing (For GPU model directly in GPU)
-        medium.allocate_medium_av(grid.nzt - 1, grid.nxt - 1); // Harmonic and arithmatic average of medium parameters
+      medium.allocate_medium_av(grid.nzt - 1, grid.nxt - 1); // Harmonic and arithmatic average of medium parameters
 
-        wave.allocate_wave(grid.nzt, grid.nxt); // Allocation of wave dynamic parameters array
+      wave.allocate_wave(grid.nzt, grid.nxt); // Allocation of wave dynamic parameters array
 
-        // Allocation of PML memory arrays
-        if (pml.npml > 0) {
-            pml.allocate_memory_arrays(grid.nzt, grid.nxt); // Allocates the PML memory for velocity and derivatives
-        }
+      // Allocation of PML memory arrays
+      if (pml.npml > 0) {
+          pml.allocate_memory_arrays(grid.nzt, grid.nxt); // Allocates the PML memory for velocity and derivatives
+      }
 
-        // Allocation of FWI related parameters
-        fwi.allocate_fwi(nft, nfz, nfx);
+      // Allocation of FWI related parameters
+      fwi.allocate_fwi(nft, nfz, nfx);
+      //std::cout<< "Error mark 2" <<std::endl;
 
+      // Updating the old material with existing material (with zero step length)
+      // only density update (to keep record of the material)
+      //medium.fwi_grad_update(medium.rho, medium.rho_old, medium.rho_old, 0.0, grid.nzt, grid.nxt, false);
+
+      for (int iz = 0; iz < grid.nzt; iz++) {
+          for (int ix = 0; ix < grid.nxt; ix++) {
+              medium.rho_old[iz][ix] = medium.rho[iz][ix];
+              medium.lam_old[iz][ix] = medium.lam[iz][ix];
+              medium.mu_old[iz][ix] = medium.mu[iz][ix];
+          }
+      }
+      //std::cout<< "Error mark 0" <<std::endl;
 
         // ------------------------------------------
         // Starting of full waveform inversion loop
         // ------------------------------------------
 
-        int iter = 0;
-        real_sim diff_L2 = 1.0;
-       
-        //cudaSetDevice(0);
-        start1 = clock();
+      iter = 0;
+      L2_norm = 1000.0;
+      real_sim L2_test[4];
 
-       cudaSetDevice(0);
-        while (diff_L2 >= maxError) {
+      // computational time
+      start_time_main = clock();
+      iteration_time = clock();
+      std::cout << "Clock started." << std::endl;
 
-            if (iter >= maxIter) {
-                end = clock();
+      // The condition needs to be checked for different condition
+      while (L2_norm >= maxError) {
 
-                cpu_time_used = ((double)(end - start1)) / CLOCKS_PER_SEC;
+          if (iter >= maxIter) {
+              std::cout << "Error: convergence not reached within maximum iteration" << std::endl;
+              exit(1);
+          }
 
-                printf("\n TOTAL PROGRAM Execution time before exit a  = %f TOTAL ITERATIONS=%d\n", cpu_time_used, maxIter);
+          std::cout << std::endl << std::endl;
+          std::cout << std::endl << "Full Waveform Inversion simulation. Iteration step " << iter++ << std::endl;
+          std::cout << "L2 norm = " << L2_norm << std::endl;
 
-                std::cout << "Error: convergence not reached within maximum iteration" << std::endl;
-                break;
-              
+          // ---------------------------------------------------
+          // Preprocessing and kernel reset (TO BE ADDED LATER)
+          // ---------------------------------------------------
+
+          // Averaging of material parameters
+          medium.average_parameters(grid.nzt - 1, grid.nxt - 1);
+          medium.medium_average(C_lam, C_mu, C_rho, grid.nzt, grid.nxt);
+          std::cout << "Material Average: " << C_rho << ", " << C_lam << ", " << C_mu << std::endl;
+
+          // ---------------------------------------------------
+
+
+          // ----------------------------------------------
+          // Forward and adjoint simulation for each shot
+          // ----------------------------------------------
+
+          for (unsigned int ishot = 0; ishot < nshots; ishot++) {
+              std::cout << std::endl << "Forward time integration [SHOT " << ishot << "]" << std::endl;
+
+              // Arguments reset for each shots
+              wave.reset_kernel(grid.nzt, grid.nxt);
+              pml.reset_memory_arrays(grid.nzt, grid.nxt);
+
+              //reset fwi kernels
+              fwi.reset_fwi_kernel(nft, nfz, nfx, true);
+
+              // ----------------------------------------------------------
+              // FORWARD SIMULATION
+              // -----------------------------------------------------------
+              // calling forward simulation for shot i
+              forward_kernel_PSV(ishot, grid.nt, grid.nzt, grid.nxt, grid.fpad, grid.ppad,
+                  grid.dt, grid.dx, grid.dz, grid.snap_interval, grid.fsurf,
+                  hc, fdorder, wave.vx, wave.vz, wave.sxx, wave.szx, wave.szz, wave.We,
+                  medium.lam, medium.mu, medium.mu_zx, medium.rho_zp, medium.rho_xp,
+                  pml.npml, pml.a, pml.b, pml.K, pml.a_half, pml.b_half, pml.K_half,
+                  pml.mem_vx_x, pml.mem_vx_z, pml.mem_vz_x, pml.mem_vz_z,
+                  pml.mem_sxx_x, pml.mem_szx_x, pml.mem_szz_z, pml.mem_szx_z,
+                  source.nseis, source.x_seis, source.z_seis,
+                  source.seis_comp, source.signal, source.shot_to_fire,
+                  receiver.nseis, receiver.x_seis, receiver.z_seis,
+                  receiver.seis_comp, receiver.signal, receiver.shot_to_fire,
+                  fwinv, fwi.dt, fwi.dx, fwi.dz, fwi.x1, fwi.x2, fwi.z1, fwi.z2,
+                  fwi.vx, fwi.vz, fwi.sxx, fwi.szx, fwi.szz);
+
+
+              // -------------------------------------------------------
+              // Residuals and argument reset for adjoint simulation
+              // --------------------------------------------------------
+              // Calculation of residials to for adjoint modelling 
+
+
+              std::cout << "Calculating residual....";
+              L2_norm = calculate_l2_adjoint_sources(receiver.nseis, grid.nt, grid.dt,
+                  receiver.signal, receiver.signal_meas);
+
+              L2_test[0] = L2_norm; // Save for step length approximateion
+              L2_test[3] = L2_norm; // Save for step length approximation
+
+              // Storing the Energy Weights from Forward wavefield (Source)
+              std::cout << "NF grid: nfz= " << nfz << ", nfx= " << nfx << std::endl;
+              for (int iz = 0; iz < grid.nzt; iz++) {
+                  for (int ix = 0; ix < grid.nxt; ix++) {
+
+                      We[iz][ix] = wave.We[iz][ix];
+
+                      //std::cout << "Source Energy:" << iz <<", " << ix << ", " <<We[iz][ix] << std::endl;
+
+                  }
+              }
+
+
+              std::cout << " L2 norm = " << L2_test[0] << ". Max error = " << maxError << std::endl;
+
+              // receiver now acts as adjoint source
+
+              // Resetting of kernels from forward to adjoint simulation 
+              wave.reset_kernel(grid.nzt, grid.nxt);
+              pml.reset_memory_arrays(grid.nzt, grid.nxt);
+
+              // ----------------------------------------------------------
+              // ADJOINT SIMULATION
+              // ----------------------------------------------------------
+              std::cout << std::endl << "Adjoint time integration [SHOT " << ishot << "]" << std::endl;
+
+              // Adjoing simulation for shot i
+              adjoint_kernel_PSV(ishot, grid.nt, grid.nzt, grid.nxt, grid.fpad, grid.ppad,
+                  grid.dt, grid.dx, grid.dz, grid.snap_interval, grid.fsurf,
+                  hc, fdorder, wave.vx, wave.vz, wave.sxx, wave.szx, wave.szz, wave.We,
+                  medium.lam, medium.mu, medium.mu_zx, medium.rho_zp, medium.rho_xp,
+                  pml.npml, pml.a, pml.b, pml.K, pml.a_half, pml.b_half, pml.K_half,
+                  pml.mem_vx_x, pml.mem_vx_z, pml.mem_vz_x, pml.mem_vz_z,
+                  pml.mem_sxx_x, pml.mem_szx_x, pml.mem_szz_z, pml.mem_szx_z,
+                  receiver.nseis, receiver.x_seis, receiver.z_seis,
+                  receiver.seis_comp, receiver.signal, receiver.shot_to_fire,
+                  fwinv, fwi.dt, fwi.dx, fwi.dz, fwi.x1, fwi.x2, fwi.z1, fwi.z2,
+                  fwi.vx, fwi.vz, fwi.sxx, fwi.szx, fwi.szz,
+                  fwi.grad_lam, fwi.grad_mu, fwi.grad_rho);
+
+              // ---------------------------------------------------------
+              // OPTIMIZATION
+              // --------------------------------------------------------
+              // Optimization part
+
+              std::cout << "Scaling gradients" << std::endl;
+              // Preconditioning
+              // Scaling gradient using energy weights
+
+              scale_gradients_with_energy_weights(We, wave.We, C_rho, C_lam, C_mu, nfz, nfx,
+                  fwi.z1, fwi.x1, fwi.dz, fwi.dx);
+
+              //-----------------------
+
+       // ---------------------
+      // Printing AASCI data to plot updated density
+/*
+        if (!(iter%1)){
+
+          outFile.open("./io/density_snap/grad_lam_snap"+std::to_string(iter)+".csv");
+          for(int j=0; j< nfz;j++){
+            for(int i=0; i< nfx;i++){
+              outFile<< fwi.grad_lam[j][i] << ", " ;
             }
-
-            std::cout << std::endl << std::endl;
-            std::cout << std::endl << "Full Waveform Inversion simulation. Iteration step " << iter++ << std::endl;
-
-            // ---------------------------------------------------
-            // Preprocessing and kernel reset (TO BE ADDED LATER)
-            // ---------------------------------------------------
-
-            // Averaging of material parameters
-            medium.average_parameters(grid.nzt - 1, grid.nxt - 1);
-
-           
-
-            // ----------------------------------------------
-            // Forward and adjoint simulation for each shot
-            // ----------------------------------------------
-     
-
-
-                for (unsigned int ishot = 0; ishot < nshots; ishot++) {
-                    std::cout << std::endl << "Forward time integration [SHOT " << ishot << "]" << std::endl;
-                    start = clock();
-                    // Arguments reset for each shots
-                    //wave.reset_kernel();
-                   
-
-                    // ----------------------------------------------------------
-                    // FORWARD SIMULATION
-                    // -----------------------------------------------------------
-                    // calling forward simulation for shot i
-                    forward_kernel_PSV(ishot, grid.nt, grid.nzt, grid.nxt, grid.fpad, grid.ppad,
-                        grid.dt, grid.dx, grid.dz, grid.snap_interval, grid.fsurf,
-                        hc, fdorder, wave.vx, wave.vz, wave.sxx, wave.szx, wave.szz,
-                        medium.lam, medium.mu, medium.mu_zx, medium.rho_zp, medium.rho_xp,
-                        pml.npml, pml.a, pml.b, pml.K, pml.a_half, pml.b_half, pml.K_half,
-                        pml.mem_vx_x, pml.mem_vx_z, pml.mem_vz_x, pml.mem_vz_z,
-                        pml.mem_sxx_x, pml.mem_szx_x, pml.mem_szz_z, pml.mem_szx_z,
-                        source.nseis, source.x_seis, source.z_seis,
-                        source.seis_comp, source.signal, source.shot_to_fire,
-                        receiver.nseis, receiver.x_seis, receiver.z_seis,
-                        receiver.seis_comp, receiver.signal, receiver.shot_to_fire,
-                        fwinv, fwi.dt, fwi.dx, fwi.dz, fwi.x1, fwi.x2, fwi.z1, fwi.z2,
-                        fwi.vx, fwi.vz, fwi.sxx, fwi.szx, fwi.szz
-                      
-                    );
-                       
-
-                    // -------------------------------------------------------
-                    // Residuals and argument reset for adjoint simulation
-                    // --------------------------------------------------------
-                    // Calculation of residials to be added later
-                    adjsrc = receiver; // Takes the details of the receivers
-
-                    // Calculate residuals from receiver signal
-
-
-                    // Resetting of kernels from forward to adjoint simulation to be added later
-
-                    // ----------------------------------------------------------
-                    // ADJOINT SIMULATION
-                    // ----------------------------------------------------------
-                    std::cout << std::endl << "Adjoint time integration [SHOT " << ishot << "]" << std::endl;
-
-                    // Adjoing simulation for shot i
-                    adjoint_kernel_PSV(ishot, grid.nt, grid.nzt, grid.nxt, grid.fpad, grid.ppad,
-                        grid.dt, grid.dx, grid.dz, grid.snap_interval, grid.fsurf,
-                        hc, fdorder, wave.vx, wave.vz, wave.sxx, wave.szx, wave.szz,
-                        medium.lam, medium.mu, medium.mu_zx, medium.rho_zp, medium.rho_xp,
-                        pml.npml, pml.a, pml.b, pml.K, pml.a_half, pml.b_half, pml.K_half,
-                        pml.mem_vx_x, pml.mem_vx_z, pml.mem_vz_x, pml.mem_vz_z,
-                        pml.mem_sxx_x, pml.mem_szx_x, pml.mem_szz_z, pml.mem_szx_z,
-                        adjsrc.nseis, adjsrc.x_seis, adjsrc.z_seis,
-                        adjsrc.seis_comp, adjsrc.signal, adjsrc.shot_to_fire,
-                        fwinv, fwi.dt, fwi.dx, fwi.dz, fwi.x1, fwi.x2, fwi.z1, fwi.z2,
-                        fwi.vx, fwi.vz, fwi.sxx, fwi.szx, fwi.szz,
-                        fwi.grad_lam, fwi.grad_mu, fwi.grad_rho
-                        
-                    );
-
-                    end = clock();
-
-                    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-
-                //  printf("\nExecution time from GPU each ITERATION = %f\n", cpu_time_used);
-                    // ---------------------------------------------------------
-                    // OPTIMIZATION
-                    // --------------------------------------------------------
-                    // Optimization part
-                    // Currently just simple material update only 
-
-
-                    std::cout << "SHOT " << ishot << " COMPLETED." << std::endl << std::endl;
-                }
-            
-            }
+            outFile<<std::endl;
+          }
+          outFile.close();
 
         }
+        //-----------------------
+*/
+              std::cout << "Step length Estimation" << std::endl;
+              // Calculate step length by parabolic line search algorithm
+              step_length = fwi_step_length_estimation(step_length, L2_test);
+
+              std::cout << "Material Update" << std::endl;
+
+              // currently directly update material
+              // only density update
+              medium.fwi_grad_update(medium.rho_old, medium.rho, fwi.grad_rho,
+                  0.5 * step_length, nfz, nfx, fwi.z1, fwi.x1, fwi.dz, fwi.dx, true, 1);
+
+
+              medium.fwi_grad_update(medium.mu_old, medium.mu, fwi.grad_mu,
+                  step_length, nfz, nfx, fwi.z1, fwi.x1, fwi.dz, fwi.dx, true, 3);
+              medium.fwi_grad_update(medium.lam_old, medium.lam, fwi.grad_lam,
+                  step_length, nfz, nfx, fwi.z1, fwi.x1, fwi.dz, fwi.dx, true, 2);
+
+
+              std::cout << "Iteration " << iter << " complete" << std::endl;
+
+              iteration_time = clock() - iteration_time;
+              time_elasp = iteration_time / CLOCKS_PER_SEC;
+              std::cout << "Time for iteration = " << time_elasp << " [sec]." << std::endl;
+
+              // ---------------------
+              // Printing AASCI data to plot updated density
+
+              if (!(iter % 1)) {
+
+                  outFile.open("./io/density_snap/density_snap" + std::to_string(iter) + ".csv");
+                  for (int j = 0; j < grid.nzt; j++) {
+                      for (int i = 0; i < grid.nxt; i++) {
+                          outFile << medium.rho[j][i] << ", ";
+                      }
+                      outFile << std::endl;
+                  }
+                  outFile.close();
+
+
+
+                  outFile.open("./io/density_snap/lam_snap" + std::to_string(iter) + ".csv");
+                  for (int j = 0; j < grid.nzt; j++) {
+                      for (int i = 0; i < grid.nxt; i++) {
+                          outFile << medium.lam[j][i] << ", ";
+                      }
+                      outFile << std::endl;
+                  }
+                  outFile.close();
+
+                  outFile.open("./io/density_snap/mu_snap" + std::to_string(iter) + ".csv");
+                  for (int j = 0; j < grid.nzt; j++) {
+                      for (int i = 0; i < grid.nxt; i++) {
+                          outFile << medium.mu[j][i] << ", ";
+                      }
+                      outFile << std::endl;
+                  }
+                  outFile.close();
+
+
+
+              }
+              //-----------------------
+
+          }
+
+      }
+
+  }
+
+  deallocate_array_2d(We, grid.nzt); // Energy weight
+
+  end_time_main = clock();
+  time_elasp = (end_time_main - start_time_main) / CLOCKS_PER_SEC;
+  std::cout << "Time required = " << time_elasp << " [sec]." << std::endl;
+
+
        
   
 

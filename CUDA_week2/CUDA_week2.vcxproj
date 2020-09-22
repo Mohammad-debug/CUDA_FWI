@@ -88,10 +88,12 @@
     <CudaCompile Include="fd_wave.cu" />
     <CudaCompile Include="fd_wave_model.cu" />
     <CudaCompile Include="forward_kernel_PSV_GPU.cu" />
+    <CudaCompile Include="fwi_step_length_estimation.cu" />
     <CudaCompile Include="main.cu" />
     <CudaCompile Include="util.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ext.cuh" />
     <ClInclude Include="fd_cpml.cuh" />
     <ClInclude Include="fd_fwi.cuh" />
     <ClInclude Include="fd_grid.cuh" />

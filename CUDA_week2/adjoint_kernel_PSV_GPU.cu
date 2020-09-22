@@ -25,7 +25,7 @@ inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort =
     }
 }
 __global__ void kernel_I(int tf, int fwi_dt, int dt, int nzt, int fwi_z1, int fwi_z2, int fwi_x1, int fwi_x2,
-    int fwi_dz, int fwi_dx, int nft, int nfz, int nfx,
+    int fwi_dz, int fwi_dx, int nft, int nxt, int nfx,
     real_sim* fwi_sxx, real_sim* fwi_szx, real_sim* fwi_szz, real_sim* fwi_vx, real_sim*
     fwi_vz, real_sim* sxx, real_sim* szx, real_sim* szz, real_sim* vx, real_sim* vz, real_sim* mu,
     real_sim* lam, real_sim* grad_lam, real_sim* grad_mu, real_sim* grad_rho) {
@@ -38,22 +38,22 @@ __global__ void kernel_I(int tf, int fwi_dt, int dt, int nzt, int fwi_z1, int fw
 
         if (ix >= fwi_x1 && ix < fwi_x2 && ix % fwi_dx == fwi_x1 % fwi_dx) {
             int xf = (ix - fwi_x1) / fwi_dx; // x index for fwi gradient storage
-            int offset = tf * nft * nfz + zf * nfz + xf;
+            int offset = tf * nzt * nxt + zf * nxt + xf;
 
-            s1 = (fwi_sxx[offset] + fwi_szz[offset]) * (sxx[iz * nzt + ix] + szz[iz * nzt + ix])
-                * 0.25 / ((lam[iz * nzt + ix] + mu[iz * nzt + ix]) * (lam[iz * nzt + ix] + mu[iz * nzt + ix]));
+            s1 = (fwi_sxx[offset] + fwi_szz[offset]) * (sxx[iz * nxt + ix] + szz[iz * nxt + ix])
+                * 0.25 / ((lam[iz * nxt + ix] + mu[iz * nxt + ix]) * (lam[iz * nxt + ix] + mu[iz * nxt + ix]));
 
-            s2 = (fwi_sxx[offset] - fwi_szz[offset]) * (sxx[iz * nzt + ix] - szz[iz * nzt + ix])
-                / (mu[iz * nzt + ix] * mu[iz * nzt + ix]);
+            s2 = (fwi_sxx[offset] - fwi_szz[offset]) * (sxx[iz * nxt + ix] - szz[iz * nxt + ix])
+                / (mu[iz * nxt + ix] * mu[iz * nxt + ix]);
 
-            s3 = (fwi_szx[offset] * szx[iz * nzt + ix]) / (mu[iz * nzt + ix] * mu[iz * nzt + ix]);
+            s3 = (fwi_szx[offset] * szx[iz * nxt + ix]) / (mu[iz * nxt + ix] * mu[iz * nxt + ix]);
 
             // The time derivatives of the velocity may have to be computed differently
-            s4 = vx[iz * nzt + ix] * fwi_vx[offset] + vz[iz * nzt + ix] * fwi_vz[offset];
+            s4 = vx[iz * nxt + ix] * fwi_vx[offset] + vz[iz * nxt + ix] * fwi_vz[offset];
 
-            grad_lam[zf * nfz + xf] += fwi_dt * dt * s1;
-            grad_mu[zf * nfz + xf] += fwi_dt * dt * (s3 + s1 + s2);
-            grad_rho[zf * nfz + xf] += fwi_dt * dt * s4;
+            grad_lam[zf * nfx + xf] += fwi_dt * dt * s1;
+            grad_mu[zf * nfx + xf] += fwi_dt * dt * (s3 + s1 + s2);
+            grad_rho[zf * nfx + xf] += fwi_dt * dt * s4;
 
 
         }
@@ -120,19 +120,25 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
     switch (fdorder) {
     case(2):
         if (ix < nx2 && ix >= nx1 && iz >= nz1 && iz < nz2)
+
         {
 
             // Calculate spatial velocity derivatives
-            vx_x = dxi * hc[1] * (vx[iz * nzt + ix] - vx[iz * nzt + (ix - 1)]);
-            vz_x = dxi * hc[1] * (vz[iz * nzt + (ix + 1)] - vz[iz * nzt + ix]);
-            vx_z = dzi * hc[1] * (vx[(iz + 1) * nzt + ix] - vx[iz * nzt + ix]);
-            vz_z = dzi * hc[1] * (vz[iz * nzt + ix] - vz[(iz - 1) * nzt + ix]);
+            vx_x = dxi * hc[1] * (vx[iz * nxt + ix] - vx[iz * nxt + (ix - 1)]);
+            vz_x = dxi * hc[1] * (vz[iz * nxt + (ix + 1)] - vz[iz * nxt + ix]);
+            vx_z = dzi * hc[1] * (vx[(iz + 1) * nxt + ix] - vx[iz * nxt + ix]);
+            vz_z = dzi * hc[1] * (vz[iz * nxt + ix] - vz[(iz - 1) * nxt + ix]);
+            //************************************************************************************************
+    // ---------------------------------------------------
+    // CPML layers for stress tensor kernel
+    // ---------------------------------------------------
 
-            // ---------------------------------------------------
-            // CPML layers for stress tensor kernel
-            // ---------------------------------------------------
 
 
+
+        // ---------------------------------------------------
+        // CPML layers for stress tensor kernel
+         //---------------------------------------------------
 
             if (npml > 0) {
 
@@ -140,14 +146,13 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
                 { // left CPML
                   // Mapping the static CPML and memory variables to
                     px = ix - fpad; // the memory array index
-                    //std::cout << std::endl << "Fault1 " << ix << std::endl;
 
 
-                    mem_vx_x[iz * nzt + px] = b[px] * mem_vx_x[iz * nzt + px] + a[px] * vx_x;
-                    mem_vz_x[iz * nzt + px] = b_half[px] * mem_vz_x[iz * nzt + px] + a_half[px] * vz_x;
+                    mem_vx_x[iz * 2 * (npml + 1) + px] = b[px] * mem_vx_x[iz * 2 * (npml + 1) + px] + a[px] * vx_x;
+                    mem_vz_x[iz * 2 * (npml + 1) + px] = b_half[px] * mem_vz_x[iz * 2 * (npml + 1) + px] + a_half[px] * vz_x;
 
-                    vx_x = vx_x / K[px] + mem_vx_x[iz * nzt + px];
-                    vz_x = vz_x / K_half[px] + mem_vz_x[iz * nzt + px];
+                    vx_x = vx_x / K[px] + mem_vx_x[iz * 2 * (npml + 1) + px];
+                    vz_x = vz_x / K_half[px] + mem_vz_x[iz * 2 * (npml + 1) + px];
 
                 } // cpml left
 
@@ -158,11 +163,13 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
 
                     px = ix - pnx; // The PML factors index
 
-                    mem_vx_x[iz * nzt + px] = b[px] * mem_vx_x[iz * nzt + px] + a[px] * vx_x;
-                    mem_vz_x[iz * nzt + px] = b_half[px] * mem_vz_x[iz * nzt + px] + a_half[px] * vz_x;
+           //         
+                    mem_vx_x[iz * 2 * (npml + 1) + px] = b[px] * mem_vx_x[iz * 2 * (npml + 1) + px] + a[px] * vx_x;
+                    mem_vz_x[iz * 2 * (npml + 1) + px] = b_half[px] * mem_vz_x[iz * 2 * (npml + 1) + px] + a_half[px] * vz_x;
 
-                    vx_x = vx_x / K[px] + mem_vx_x[iz * nzt + px];
-                    vz_x = vz_x / K_half[px] + mem_vz_x[iz * nzt + px];
+                    vx_x = vx_x / K[px] + mem_vx_x[iz * 2 * (npml + 1) + px];
+                    vz_x = vz_x / K_half[px] + mem_vz_x[iz * 2 * (npml + 1) + px];
+
 
 
                 } // cpml right
@@ -172,11 +179,12 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
                   // Mapping the static CPML and memory variables to
                     pz = iz - fpad; // the memory array index
 
-                    mem_vz_z[pz * 2 * (npml + 1) + ix] = b[pz] * mem_vz_z[pz * 2 * (npml + 1) + ix] + a[pz] * vz_z;
-                    mem_vx_z[pz * 2 * (npml + 1) + ix] = b_half[pz] * mem_vx_z[pz * 2 * (npml + 1) + ix] + a_half[pz] * vx_z;
 
-                    vz_z = vz_z / K[pz] + mem_vz_z[pz * 2 * (npml + 1) + ix];
-                    vx_z = vx_z / K_half[pz] + mem_vx_z[pz * 2 * (npml + 1) + ix];
+                    mem_vz_z[pz * nxt + ix] = b[pz] * mem_vz_z[pz * nxt + ix] + a[pz] * vz_z;
+                    mem_vx_z[pz * nxt + ix] = b_half[pz] * mem_vx_z[pz * nxt + ix] + a_half[pz] * vx_z;
+
+                    vz_z = vz_z / K[pz] + mem_vz_z[pz * nxt + ix];
+                    vx_z = vx_z / K_half[pz] + mem_vx_z[pz * nxt + ix];
 
                     //std::cout << pz<< ", ";
 
@@ -187,43 +195,37 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
                 if (iz >= (nzt - ppad - 1) && iz < nzt - fpad) { // bottom CPML
                   // Mapping the static CPML and memory variables to
                     pz = iz - pnz; // The PML factors index
+                    mem_vz_z[pz * nxt + ix] = b[pz] * mem_vz_z[pz * nxt + ix] + a[pz] * vz_z;
+                    mem_vx_z[pz * nxt + ix] = b_half[pz] * mem_vx_z[pz * nxt + ix] + a_half[pz] * vx_z;
 
-                    mem_vz_z[pz * 2 * (npml + 1) + ix] = b[pz] * mem_vz_z[pz * 2 * (npml + 1) + ix] + a[pz] * vz_z;
-                    mem_vx_z[pz * 2 * (npml + 1) + ix] = b_half[pz] * mem_vx_z[pz * 2 * (npml + 1) + ix] + a_half[pz] * vx_z;
-
-                    vz_z = vz_z / K[pz] + mem_vz_z[pz * 2 * (npml + 1) + ix];
-                    vx_z = vx_z / K_half[pz] + mem_vx_z[pz * 2 * (npml + 1) + ix];
-
+                    vz_z = vz_z / K[pz] + mem_vz_z[pz * nxt + ix];
+                    vx_z = vx_z / K_half[pz] + mem_vx_z[pz * nxt + ix];
                     //std::cout << pz<< ", ";
 
                 } // cpml bottom
 
             }    // npml>0
             __syncthreads();
-            //// --------------------------------------------------------------------------
-            //// --------------------------------------------------------------------------
 
             ////// updating stresses
 
-            szx[iz * nzt + ix] += dt * mu_zx[iz * (nzt - 1) + ix] * (vz_x + vx_z);
-            sxx[iz * nzt + ix] += dt * (lam[iz * nzt + ix] * (vx_x + vz_z) + (2.0f * mu[iz * nzt + ix] * vx_x));
-            szz[iz * nzt + ix] += dt * (lam[iz * nzt + ix] * (vx_x + vz_z) + (2.0f * mu[iz * nzt + ix] * vz_z));
+            szx[iz * nxt + ix] += dt * mu_zx[iz * (nxt - 1) + ix] * (vz_x + vx_z);
+            sxx[iz * nxt + ix] += dt * (lam[iz * nxt + ix] * (vx_x + vz_z) + (2.0f * mu[iz * nxt + ix] * vx_x));
+            szz[iz * nxt + ix] += dt * (lam[iz * nxt + ix] * (vx_x + vz_z) + (2.0f * mu[iz * nxt + ix] * vz_z));
 
-
-            // -----------------------------------------
-   // ----------------------------------------- 
-   // Override stress for free surface implementation
+            // Override stress for free surface implementation
 
             if (fsurf && iz == fpad) {
                 // Free surface at z = 0 or nz = fpad
 
                 // Denise manual  page 13
-                szz[fpad * nzt + ix] = 0.0;
-                szx[fpad * nzt + ix] = 0.0;
-                sxx[fpad * nzt + ix] = 4.0 * dt * vx_x * (lam[fpad * nzt + ix] * mu[fpad * nzt + ix] + mu[fpad * nzt + ix] * mu[fpad * nzt + ix])
-                    / (lam[fpad * nzt + ix] + 2.0 * mu[fpad * nzt + ix]);
+                szz[fpad * nxt + ix] = 0.0;
+                szx[fpad * nxt + ix] = 0.0;
+                sxx[fpad * nxt + ix] = 4.0 * dt * vx_x * (lam[fpad * nxt + ix] * mu[fpad * nxt + ix] + mu[fpad * nxt + ix] * mu[fpad * nxt + ix])
+                    / (lam[fpad * nxt + ix] + 2.0 * mu[fpad * nxt + ix]);
 
             }
+
 
         }
         else {
@@ -236,7 +238,6 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
           //exit(0);
        // printf("FD order mismatch. <SIMULATION ABORTED>\n");
     } // end of switch
-
 
 }
 
@@ -283,20 +284,15 @@ __global__ void kernel_III(int ishot, int nt, int nzt, int nxt, int fpad, int pp
     int iz = blockIdx.x * blockDim.x + threadIdx.x;
     int ix = blockIdx.y * blockDim.y + threadIdx.y;
 
-
     switch (fdorder) {
     case(2):
         if (ix < nx2 && ix >= nx1 && iz >= nz1 && iz < nz2)
         {
-            // printf("abc");
-            // compute spatial stress derivatives
-            sxx_x = dxi * hc[1] * (sxx[iz * nzt + ix + 1] - sxx[iz * nzt + ix]);
-            szx_z = dxi * hc[1] * (szx[iz * nzt + ix] - szx[(iz - 1) * nzt + ix]);
+            sxx_x = dxi * hc[1] * (sxx[iz * nxt + ix + 1] - sxx[iz * nxt + ix]);
+            szx_z = dxi * hc[1] * (szx[iz * nxt + ix] - szx[(iz - 1) * nxt + ix]);
 
-            szx_x = dzi * hc[1] * (szx[iz * nzt + ix] - szx[iz * nzt + ix - 1]);
-            szz_z = dzi * hc[1] * (szz[(iz + 1) * nzt + ix] - szz[iz * nzt + ix]);
-
-
+            szx_x = dzi * hc[1] * (szx[iz * nxt + ix] - szx[iz * nxt + ix - 1]);
+            szz_z = dzi * hc[1] * (szz[(iz + 1) * nxt + ix] - szz[iz * nxt + ix]);
             // ---------------------------------------------------
             // CPML layers for particle velocity kernel
             // ---------------------------------------------------
@@ -307,11 +303,11 @@ __global__ void kernel_III(int ishot, int nt, int nzt, int nxt, int fpad, int pp
                   // Mapping the static CPML and memory variables to
                     px = ix - fpad; // the memory array index
 
-                    mem_sxx_x[iz * nzt + px] = b[px] * mem_sxx_x[iz * nzt + px] + a[px] * sxx_x;
-                    mem_szx_x[iz * nzt + px] = b_half[px] * mem_szx_x[iz * nzt + px] + a_half[px] * szx_x;
+                    mem_sxx_x[iz * 2 * (npml + 1) + px] = b[px] * mem_sxx_x[iz * 2 * (npml + 1) + px] + a[px] * sxx_x;
+                    mem_szx_x[iz * 2 * (npml + 1) + px] = b_half[px] * mem_szx_x[iz * 2 * (npml + 1) + px] + a_half[px] * szx_x;
 
-                    sxx_x = sxx_x / K[px] + mem_sxx_x[iz * nzt + px];
-                    szx_x = szx_x / K_half[px] + mem_szx_x[iz * nzt + px];
+                    sxx_x = sxx_x / K[px] + mem_sxx_x[iz * 2 * (npml + 1) + px];
+                    szx_x = szx_x / K_half[px] + mem_szx_x[iz * 2 * (npml + 1) + px];
 
                 } // cpml left
 
@@ -319,11 +315,11 @@ __global__ void kernel_III(int ishot, int nt, int nzt, int nxt, int fpad, int pp
                   // Mapping the static CPML and memory variables to
                     px = ix - pnx; // The PML factors index
 
-                    mem_sxx_x[iz * nzt + px] = b[px] * mem_sxx_x[iz * nzt + px] + a[px] * sxx_x;
-                    mem_szx_x[iz * nzt + px] = b_half[px] * mem_szx_x[iz * nzt + px] + a_half[px] * szx_x;
+                    mem_sxx_x[iz * 2 * (npml + 1) + px] = b[px] * mem_sxx_x[iz * 2 * (npml + 1) + px] + a[px] * sxx_x;
+                    mem_szx_x[iz * 2 * (npml + 1) + px] = b_half[px] * mem_szx_x[iz * 2 * (npml + 1) + px] + a_half[px] * szx_x;
 
-                    sxx_x = sxx_x / K[px] + mem_sxx_x[iz * nzt + px];
-                    szx_x = szx_x / K_half[px] + mem_szx_x[iz * nzt + px];
+                    sxx_x = sxx_x / K[px] + mem_sxx_x[iz * 2 * (npml + 1) + px];
+                    szx_x = szx_x / K_half[px] + mem_szx_x[iz * 2 * (npml + 1) + px];
 
                 } // cpml right
 
@@ -332,31 +328,30 @@ __global__ void kernel_III(int ishot, int nt, int nzt, int nxt, int fpad, int pp
                   // Mapping the static CPML and memory variables to
                     pz = iz - fpad; // the memory array index
 
-                    mem_szz_z[pz * 2 * (npml + 1) + ix] = b[pz] * mem_szz_z[pz * 2 * (npml + 1) + ix] + a[pz] * szz_z;
-                    mem_szx_z[pz * 2 * (npml + 1) + ix] = b_half[pz] * mem_szx_z[pz * 2 * (npml + 1) + ix] + a_half[pz] * szx_z;
+                    mem_szz_z[pz * nxt + ix] = b[pz] * mem_szz_z[pz * nxt + ix] + a[pz] * szz_z;
+                    mem_szx_z[pz * nxt + ix] = b_half[pz] * mem_szx_z[pz * nxt + ix] + a_half[pz] * szx_z;
 
-                    szz_z = szz_z / K[pz] + mem_szz_z[pz * 2 * (npml + 1) + ix];
-                    szx_z = szx_z / K_half[pz] + mem_szx_z[pz * 2 * (npml + 1) + ix];
+                    szz_z = szz_z / K[pz] + mem_szz_z[pz * nxt + ix];
+                    szx_z = szx_z / K_half[pz] + mem_szx_z[pz * nxt + ix];
 
                 } // cpml top
 
                 if (iz >= (nzt - ppad - 1) && iz < nzt - fpad) { // bottom CPML
                   // Mapping the static CPML and memory variables to
                     pz = iz - pnz; // The PML factors index
+                    mem_szz_z[pz * nxt + ix] = b[pz] * mem_szz_z[pz * nxt + ix] + a[pz] * szz_z;
+                    mem_szx_z[pz * nxt + ix] = b_half[pz] * mem_szx_z[pz * nxt + ix] + a_half[pz] * szx_z;
 
-                    mem_szz_z[pz * 2 * (npml + 1) + ix] = b[pz] * mem_szz_z[pz * 2 * (npml + 1) + ix] + a[pz] * szz_z;
-                    mem_szx_z[pz * 2 * (npml + 1) + ix] = b_half[pz] * mem_szx_z[pz * 2 * (npml + 1) + ix] + a_half[pz] * szx_z;
-
-                    szz_z = szz_z / K[pz] + mem_szz_z[pz * 2 * (npml + 1) + ix];
-                    szx_z = szx_z / K_half[pz] + mem_szx_z[pz * 2 * (npml + 1) + ix];
+                    szz_z = szz_z / K[pz] + mem_szz_z[pz * nxt + ix];
+                    szx_z = szx_z / K_half[pz] + mem_szx_z[pz * nxt + ix];
 
                 } // cpml bottom
-                __syncthreads();
+              
             } // npml>0
 
             // update particle velocities
-            vx[iz * nzt + ix] += dt * rho_xp[iz * (nzt - 1) + ix] * (sxx_x + szx_z);
-            vz[iz * nzt + ix] += dt * rho_zp[iz * (nzt - 1) + ix] * (szx_x + szz_z);
+            vx[iz * nxt + ix] += dt * rho_xp[iz * (nxt - 1) + ix] * (sxx_x + szx_z);
+            vz[iz * nxt + ix] += dt * rho_zp[iz * (nxt - 1) + ix] * (szx_x + szz_z);
 
 
         }
@@ -371,17 +366,16 @@ __global__ void kernel_III(int ishot, int nt, int nzt, int nxt, int fpad, int pp
        // printf("FD order mismatch. <SIMULATION ABORTED>\n");
     } // end of switch
 
-
 }
 
-__global__ void kernel_IV(int nx1, int nx2, int fpad, int nzt, real_sim* szx, real_sim* szz) {
-    int iz = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void kernel_IV(int nx1, int nx2, int fpad, int nxt, real_sim* szx, real_sim* szz) {
+    int sz = blockIdx.x * blockDim.x + threadIdx.x;
     int ix = blockIdx.y * blockDim.y + threadIdx.y;
-    int sz = 1;
+    
     if (ix >= nx1 && ix < nx2 && sz >= 1 && sz <= fpad) {
         // mirroring 
-        szx[(fpad - sz) * nzt + ix] = -szx[(fpad + sz) * nzt + ix];
-        szz[(fpad - sz) * nzt + ix] = -szz[(fpad + sz) * nzt + ix];
+        szx[(fpad - sz) * nxt + ix] = -szx[(fpad + sz) * nxt + ix];
+        szz[(fpad - sz) * nxt + ix] = -szz[(fpad + sz) * nxt + ix];
 
     }
 
@@ -538,14 +532,14 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
 
         // ---------------------------------------------------------
         // Computation of gradient kernels
-        gpuErrchk(cudaMemcpy(d_vz, vz[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
+       // gpuErrchk(cudaMemcpy(d_vz, vz[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
 
         if (fwinv && !(it % fwi_dt)) {
 
             tf = it / fwi_dt; // t index for fwi gradient storage
             //std::cout<<"fwi time: " << it << ", adjoint simulation" << std::endl;
             kernel_I << < blocksPerGrid, threadsPerBlock >> > (tf, fwi_dt, dt, nzt, fwi_z1, fwi_z2, fwi_x1, fwi_x2,
-                fwi_dz, fwi_dx, nft, nfz, nfx,
+                fwi_dz, fwi_dx, nft, nxt, nfx,
                 d_fwi_sxx, d_fwi_szx, d_fwi_szz, d_fwi_vx,
                 d_fwi_vz, d_sxx, d_szx, d_szz, d_vx, d_vz, d_mu,
                 d_lam, d_grad_lam, d_grad_mu, d_grad_rho);
@@ -583,14 +577,14 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
 
         if (fsurf) { // Mirroring stresses for free surface condition
 
-            kernel_IV << < blocksPerGrid, threadsPerBlock >> > (nx1, nx2, fpad, nzt, d_szx, d_szz);
+            kernel_IV << < blocksPerGrid, threadsPerBlock >> > (nx1, nx2, fpad, nxt, d_szx, d_szz);
             gpuErrchk(cudaPeekAtLastError());
 
         }
         gpuErrchk(cudaDeviceSynchronize());
 
 
-        gpuErrchk(cudaMemcpy(vz[0], d_vz, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
+      //  gpuErrchk(cudaMemcpy(vz[0], d_vz, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
 
         //****************************************************************************
 

@@ -44,6 +44,14 @@ public:
 	void fwi_simulate();
 
 
+	real_sim calculate_l2_adjoint_sources(unsigned int nr, int nt, real_sim dt,
+		real_sim** signal, real_sim** signal_meas);
+
+	real_sim fwi_step_length_estimation(real_sim est_step_length, real_sim* L2_test);
+
+	void scale_gradients_with_energy_weights(real_sim** Ws, real_sim** Wr, real_sim C_rho, real_sim C_lam, real_sim C_mu,
+		int nz, int nx, int z1, int x1, int fdz, int fdx);
+
 };
 
 #endif
