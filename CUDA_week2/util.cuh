@@ -51,5 +51,9 @@ void deallocate_array_3d(T***& mArray, const int dim1, const int dim2);
 template <class T> // Referenced from external source forward_virieux from github
 void parse_string_to_vector(std::basic_string<char> string_to_parse,
     std::vector<T>* destination_vector);
+//
+
+void allocate_array_2d_Cuda(real_sim*& mArray, const int dim1, const int dim2);
+void reset_array_2d_Cuda(real_sim*& mArray, const int dim1, const int dim2);
 
 #endif 

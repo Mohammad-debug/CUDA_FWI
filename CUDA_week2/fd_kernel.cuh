@@ -103,7 +103,7 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
     real_sim*** fwi_szx, real_sim*** fwi_szz,
     //*****************GPU PARAMS***************
     real_sim* d_a, real_sim* d_b, real_sim* d_K, real_sim* d_a_half, real_sim* d_b_half, real_sim* d_K_half,
-    real_sim* d_vx, real_sim* d_vz, real_sim* d_sxx, real_sim* d_szx, real_sim* d_szz,
+    real_sim* d_vx,  real_sim* d_vz,  real_sim* d_sxx, real_sim* d_szx, real_sim* d_szz, real_sim* d_We,
     //
     real_sim* d_fwi_vx,
     real_sim* d_fwi_vz,
@@ -150,7 +150,7 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
     real_sim** grad_lam, real_sim** grad_mu, real_sim** grad_rho,
     //*****************GPU PARAMS***************
     real_sim* d_a, real_sim* d_b, real_sim* d_K, real_sim* d_a_half, real_sim* d_b_half, real_sim* d_K_half,
-    real_sim* d_vx, real_sim* d_vz, real_sim* d_sxx,  real_sim* d_szx, real_sim* d_szz,
+    real_sim* d_vx, real_sim* d_vz, real_sim* d_sxx,  real_sim* d_szx, real_sim* d_szz, real_sim* d_We,
     //
     real_sim* d_fwi_vx,
     real_sim* d_fwi_vz,

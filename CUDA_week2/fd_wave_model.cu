@@ -273,7 +273,7 @@ void FDWaveModel::fwi_simulate() {
 
     allocate_array_2d(We, grid.nzt, grid.nxt); // Energy weight
 
-    bool gpu_comp = false;
+    bool gpu_comp = true;
 
     if (gpu_comp == true) {
         // Bifurcation towards GPU computation
@@ -296,8 +296,9 @@ void FDWaveModel::fwi_simulate() {
         // Starting of full waveform inversion loop
         // ------------------------------------------
 
-        int iter = 0;
-        real_sim diff_L2 = 1.0;
+        iter = 0;
+        L2_norm = 1000.0;
+        real_sim L2_test[4];
 
         //cudaSetDevice(0);
         start1 = clock();
@@ -327,17 +328,20 @@ void FDWaveModel::fwi_simulate() {
         gpuErrchk(cudaMemcpy(d_b_half, pml.b_half, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
         gpuErrchk(cudaMemcpy(d_K_half, pml.K_half, size_1d * sizeof(real_sim), cudaMemcpyHostToDevice));
 
+
         real_sim* d_vx; real_sim* d_vz; real_sim* d_sxx;
-        real_sim* d_szx; real_sim* d_szz;
+        real_sim* d_szx; real_sim* d_szz; real_sim* d_We;
 
         int size = grid.nzt * grid.nxt;
 
+        gpuErrchk(cudaMalloc((void**)&d_vx, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_vx, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_vz, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_sxx, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_szx, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_szz, size * sizeof(real_sim)));
 
+        gpuErrchk(cudaMalloc((void**)&d_We, size * sizeof(real_sim)));
 
         real_sim* d_mem_vx_x; real_sim* d_mem_vx_z; real_sim* d_mem_vz_x; real_sim* d_mem_vz_z;
         real_sim* d_mem_sxx_x; real_sim* d_mem_szx_x; real_sim* d_mem_szz_z; real_sim* d_mem_szx_z;
@@ -382,15 +386,12 @@ void FDWaveModel::fwi_simulate() {
         real_sim* d_fwi_szx;
         real_sim* d_fwi_szz;
 
-        const int nft = 1 + (grid.nt - 1) / fwi.dt;
-        const int nfz = 1 + (fwi.z2 - fwi.z1) / fwi.dz;
-        const int nfx = 1 + (fwi.x2 - fwi.x1) / fwi.dx;
-
-        gpuErrchk(cudaMalloc((void**)&d_fwi_vx, (grid.nt * grid.nzt * grid.nxt) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_vz, (grid.nt * grid.nzt * grid.nxt) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_sxx, (grid.nt * grid.nzt * grid.nxt) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_szx, (grid.nt * grid.nzt * grid.nxt) * sizeof(real_sim)));
-        gpuErrchk(cudaMalloc((void**)&d_fwi_szz, (grid.nt * grid.nzt * grid.nxt) * sizeof(real_sim)));
+      
+        gpuErrchk(cudaMalloc((void**)&d_fwi_vx, (nft*nfz*nfx) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_vz, (nft* nfz* nfx) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_sxx, (nft* nfz* nfx) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_szx, (nft* nfz* nfx) * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_fwi_szz, (nft* nfz* nfx) * sizeof(real_sim)));
         //
 
       
@@ -405,25 +406,35 @@ void FDWaveModel::fwi_simulate() {
 
 
 
-        real_sim* d_lam;  real_sim* d_mu;
+        real_sim* d_lam_old;  real_sim* d_mu_old; real_sim** d_rho_old;
+        real_sim* d_lam;  real_sim* d_mu; real_sim** d_rho;
         real_sim* d_mu_zx; real_sim* d_rho_zp; real_sim* d_rho_xp;
 
 
         size = grid.nzt * grid.nxt;
+        
 
-
+        gpuErrchk(cudaMalloc((void**)&d_rho, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_lam, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_mu, size * sizeof(real_sim)));
+        //
+        gpuErrchk(cudaMalloc((void**)&d_rho_old, size * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_lam_old, size * sizeof(real_sim)));
+        gpuErrchk(cudaMalloc((void**)&d_mu_old, size * sizeof(real_sim)));
+
         size = (grid.nzt - 1) * (grid.nxt - 1);
         gpuErrchk(cudaMalloc((void**)&d_mu_zx, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_rho_zp, size * sizeof(real_sim)));
         gpuErrchk(cudaMalloc((void**)&d_rho_xp, size * sizeof(real_sim)));
-
-
+        size = grid.nzt * grid.nxt;
+        //
+        gpuErrchk(cudaMemcpy(d_lam_old, medium.rho[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
+        gpuErrchk(cudaMemcpy(d_lam_old, medium.lam[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
+        gpuErrchk(cudaMemcpy(d_mu_old, medium.mu[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
 
         //******************************************************************
         cudaSetDevice(0);
-        while (diff_L2 >= maxError) {
+        while (L2_norm >= maxError) {
 
             if (iter >= maxIter) {
                 end = clock();
@@ -440,16 +451,22 @@ void FDWaveModel::fwi_simulate() {
             std::cout << std::endl << std::endl;
             std::cout << std::endl << "Full Waveform Inversion simulation. Iteration step " << iter++ << std::endl;
 
-            // ---------------------------------------------------
+    
+             // ---------------------------------------------------
             // Preprocessing and kernel reset (TO BE ADDED LATER)
             // ---------------------------------------------------
 
             // Averaging of material parameters
             medium.average_parameters(grid.nzt - 1, grid.nxt - 1);
+            medium.medium_average(C_lam, C_mu, C_rho, grid.nzt, grid.nxt);
+            std::cout << "Material Average: " << C_rho << ", " << C_lam << ", " << C_mu << std::endl;
+
+         
 
             // ---------------------------------------------------
             size = grid.nzt * grid.nxt;
 
+            gpuErrchk(cudaMemcpy(d_lam, medium.rho[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
             gpuErrchk(cudaMemcpy(d_lam, medium.lam[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
             gpuErrchk(cudaMemcpy(d_mu, medium.mu[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
 
@@ -469,7 +486,10 @@ void FDWaveModel::fwi_simulate() {
                 start = clock();
                 // Arguments reset for each shots
                 //wave.reset_kernel();
-
+                int size_grad = nfz * nfx;
+                gpuErrchk(cudaMemset(d_grad_lam, 0, size_grad * sizeof(real_sim)));
+                gpuErrchk(cudaMemset(d_grad_mu, 0, size_grad * sizeof(real_sim)));
+                gpuErrchk(cudaMemset(d_grad_rho, 0, size_grad * sizeof(real_sim)));
 
                 // ----------------------------------------------------------
                 // FORWARD SIMULATION
@@ -491,7 +511,7 @@ void FDWaveModel::fwi_simulate() {
                     //
                     d_a, d_b, d_K, d_a_half, d_b_half, d_K_half,
                     //
-                    d_vx, d_vz, d_sxx, d_szx, d_szz,
+                    d_vx, d_vz, d_sxx, d_szx, d_szz,d_We,
                     // 
                     d_fwi_vx, d_fwi_vz, d_fwi_sxx, d_fwi_szx, d_fwi_szz,
                     //
@@ -501,18 +521,40 @@ void FDWaveModel::fwi_simulate() {
                     d_lam, d_mu, d_mu_zx, d_rho_zp, d_rho_xp
                 );
 
-
                 // -------------------------------------------------------
                 // Residuals and argument reset for adjoint simulation
                 // --------------------------------------------------------
-                // Calculation of residials to be added later
-                adjsrc = receiver; // Takes the details of the receivers
-
-                // Calculate residuals from receiver signal
+                // Calculation of residials to for adjoint modelling 
 
 
-                // Resetting of kernels from forward to adjoint simulation to be added later
+                std::cout << "Calculating residual....";
+                L2_norm = calculate_l2_adjoint_sources(receiver.nseis, grid.nt, grid.dt,
+                    receiver.signal, receiver.signal_meas);
 
+                L2_test[0] = L2_norm; // Save for step length approximateion
+                L2_test[3] = L2_norm; // Save for step length approximation
+                //----------------------------------
+                gpuErrchk(cudaMemcpy(wave.We[0], d_We, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
+                //----------------------------------
+                // Storing the Energy Weights from Forward wavefield (Source)
+                std::cout << "NF grid: nfz= " << nfz << ", nfx= " << nfx << std::endl;
+                for (int iz = 0; iz < grid.nzt; iz++) {
+                    for (int ix = 0; ix < grid.nxt; ix++) {
+
+                        We[iz][ix] = wave.We[iz][ix];
+
+                        //std::cout << "Source Energy:" << iz <<", " << ix << ", " <<We[iz][ix] << std::endl;
+
+                    }
+                }
+
+
+                std::cout << " L2 norm = " << L2_test[0] << ". Max error = " << maxError << std::endl;
+
+                // receiver now acts as adjoint source
+
+                // Resetting of kernels from forward to adjoint simulation (its inside adjoint function)
+               
                 // ----------------------------------------------------------
                 // ADJOINT SIMULATION
                 // ----------------------------------------------------------
@@ -534,7 +576,7 @@ void FDWaveModel::fwi_simulate() {
                     //
                     d_a, d_b, d_K, d_a_half, d_b_half, d_K_half,
                     //
-                    d_vx, d_vz, d_sxx, d_szx, d_szz,
+                    d_vx, d_vz, d_sxx, d_szx, d_szz,d_We,
                     // 
                     d_fwi_vx, d_fwi_vz, d_fwi_sxx, d_fwi_szx, d_fwi_szz,
                     //
@@ -552,21 +594,110 @@ void FDWaveModel::fwi_simulate() {
 
                 cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
 
-                // printf("\nExecution time from GPU each ITERATION = %f\n", cpu_time_used);
-                 // ---------------------------------------------------------
-                 // OPTIMIZATION
-                 // --------------------------------------------------------
-                 // Optimization part
-                 // Currently just simple material update only 
+                // ---------------------------------------------------------
+               // OPTIMIZATION
+               // --------------------------------------------------------
+               // Optimization part
+
+                std::cout << "Scaling gradients" << std::endl;
+                // Preconditioning
+                // Scaling gradient using energy weights
+
+                scale_gradients_with_energy_weights(We, wave.We, C_rho, C_lam, C_mu, nfz, nfx,
+                    fwi.z1, fwi.x1, fwi.dz, fwi.dx);
+
+                //-----------------------
+
+         // ---------------------
+        // Printing AASCI data to plot updated density
+/*
+        if (!(iter%1)){
+
+          outFile.open("./io/density_snap/grad_lam_snap"+std::to_string(iter)+".csv");
+          for(int j=0; j< nfz;j++){
+            for(int i=0; i< nfx;i++){
+              outFile<< fwi.grad_lam[j][i] << ", " ;
+            }
+            outFile<<std::endl;
+          }
+          outFile.close();
+
+        }
+        //-----------------------
+*/
+                std::cout << "Step length Estimation" << std::endl;
+                // Calculate step length by parabolic line search algorithm
+                step_length = fwi_step_length_estimation(step_length, L2_test);
+
+                std::cout << "Material Update" << std::endl;
+                gpuErrchk(cudaMemcpy(medium.lam[0], d_lam, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(medium.mu[0], d_mu, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(medium.rho[0], d_mu, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
+                // currently directly update material
+                // only density update
+                medium.fwi_grad_update(medium.rho_old, medium.rho, fwi.grad_rho,
+                    0.5 * step_length, nfz, nfx, fwi.z1, fwi.x1, fwi.dz, fwi.dx, true, 1);
 
 
-                std::cout << "SHOT " << ishot << " COMPLETED." << std::endl << std::endl;
+                medium.fwi_grad_update(medium.mu_old, medium.mu, fwi.grad_mu,
+                    step_length, nfz, nfx, fwi.z1, fwi.x1, fwi.dz, fwi.dx, true, 3);
+                medium.fwi_grad_update(medium.lam_old, medium.lam, fwi.grad_lam,
+                    step_length, nfz, nfx, fwi.z1, fwi.x1, fwi.dz, fwi.dx, true, 2);
+
+
+                std::cout << "Iteration " << iter << " complete" << std::endl;
+
+                iteration_time = clock() - iteration_time;
+                time_elasp = iteration_time / CLOCKS_PER_SEC;
+                std::cout << "Time for iteration = " << time_elasp << " [sec]." << std::endl;
+
+                // ---------------------
+                // Printing AASCI data to plot updated density
+
+                if (!(iter % 1)) {
+
+                    outFile.open("./io/density_snap/density_snap" + std::to_string(iter) + ".csv");
+                    for (int j = 0; j < grid.nzt; j++) {
+                        for (int i = 0; i < grid.nxt; i++) {
+                            outFile << medium.rho[j][i] << ", ";
+                        }
+                        outFile << std::endl;
+                    }
+                    outFile.close();
+
+
+
+                    outFile.open("./io/density_snap/lam_snap" + std::to_string(iter) + ".csv");
+                    for (int j = 0; j < grid.nzt; j++) {
+                        for (int i = 0; i < grid.nxt; i++) {
+                            outFile << medium.lam[j][i] << ", ";
+                        }
+                        outFile << std::endl;
+                    }
+                    outFile.close();
+
+                    outFile.open("./io/density_snap/mu_snap" + std::to_string(iter) + ".csv");
+                    for (int j = 0; j < grid.nzt; j++) {
+                        for (int i = 0; i < grid.nxt; i++) {
+                            outFile << medium.mu[j][i] << ", ";
+                        }
+                        outFile << std::endl;
+                    }
+                    outFile.close();
+
+
+
+                }
+                //-----------------------
+
+
+                //std::cout << "SHOT " << ishot << " COMPLETED." << std::endl << std::endl;
             }
             gpuErrchk(cudaMemcpy(medium.lam[0], d_lam, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
             gpuErrchk(cudaMemcpy(medium.mu[0], d_mu, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
-            gpuErrchk(cudaMemcpy(medium.mu_zx[0], d_mu_zx, (grid.nzt - 1) * (grid.nxt - 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
-            gpuErrchk(cudaMemcpy(medium.rho_zp[0], d_rho_zp, (grid.nzt - 1) * (grid.nxt - 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
-            gpuErrchk(cudaMemcpy(medium.rho_xp[0], d_rho_xp, (grid.nzt - 1) * (grid.nxt - 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
+            gpuErrchk(cudaMemcpy(medium.mu_zx[0], d_mu_zx, (grid.nzt - 1)* (grid.nxt - 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
+            gpuErrchk(cudaMemcpy(medium.rho_zp[0], d_rho_zp, (grid.nzt - 1)* (grid.nxt - 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
+            gpuErrchk(cudaMemcpy(medium.rho_xp[0], d_rho_xp, (grid.nzt - 1)* (grid.nxt - 1) * sizeof(real_sim), cudaMemcpyDeviceToHost));
 
         }
 
@@ -686,6 +817,8 @@ void FDWaveModel::fwi_simulate() {
                 L2_test[3] = L2_norm; // Save for step length approximation
 
                 // Storing the Energy Weights from Forward wavefield (Source)
+                //
+
                 std::cout << "NF grid: nfz= " << nfz << ", nfx= " << nfx << std::endl;
                 for (int iz = 0; iz < grid.nzt; iz++) {
                     for (int ix = 0; ix < grid.nxt; ix++) {

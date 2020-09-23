@@ -13,6 +13,9 @@
 #include "globvar.cuh"
 #include "util.cu"
 #include "fd_cpml.cuh"
+
+std::ofstream outSrcFile;
+
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort = true)
 {
@@ -229,7 +232,7 @@ __global__ void kernel_one(int ishot, int nt, int nzt, int nxt, int fpad, int pp
 }
 
 __global__ void kernel_two(int ishot, int nt, int nzt, int nxt, int fpad, int ppad, real_sim dt, real_sim dx, real_sim dz,
-    int fdorder, real_sim* vx, real_sim* vz, real_sim* sxx,
+    int fdorder, real_sim* vx, real_sim* vz, real_sim* sxx, real_sim* We,
     real_sim* szx, real_sim* szz, real_sim* lam, real_sim* mu,
     real_sim* mu_zx, real_sim* rho_zp, real_sim* rho_xp, int npml,
     real_sim* a, real_sim* b, real_sim* K, real_sim* a_half, real_sim* b_half, real_sim* K_half,
@@ -334,13 +337,14 @@ __global__ void kernel_two(int ishot, int nt, int nzt, int nxt, int fpad, int pp
                     szx_z = szx_z / K_half[pz] + mem_szx_z[pz * nxt + ix];
 
                 } // cpml bottom
-                __syncthreads();
+               
             } // npml>0
 
             // update particle velocities
             vx[iz * nxt + ix] += dt * rho_xp[iz * (nxt - 1) + ix] * (sxx_x + szx_z);
             vz[iz * nxt + ix] += dt * rho_zp[iz * (nxt - 1) + ix] * (szx_x + szz_z);
-
+            // Energy weights
+            We[iz * nxt + ix] += vx[iz * nxt + ix] * vx[iz * nxt + ix] + vz[iz * nxt + ix] * vz[iz * nxt + ix];
 
         }
         else { return; }
@@ -376,11 +380,6 @@ __global__ void kernel_Thri(int nx1, int nx2, int fpad, int nxt, real_sim* szx, 
 
 
 
-
-
-
-
-
 void forward_kernel_PSV_GPU(int ishot, // shot number
                         // Time and space grid arguments
     int nt, int nzt, int nxt, int fpad, int ppad,
@@ -404,16 +403,15 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
     real_sim** src_signal, ivec source_to_fire_shot,
     // Receiver arguments
     int nrec, ivec rec_x, ivec rec_z, ivec rec_comp,
-    real_sim** rec_signal, ivec receiver_to_record_shot,//shot_to_fire
+    real_sim** rec_signal, ivec receiver_to_record_shot,
     // FWI arguments
     bool fwinv, int fwi_dt, int fwi_dx, int fwi_dz,
     int fwi_x1, int fwi_x2, int fwi_z1, int fwi_z2,
     real_sim*** fwi_vx, real_sim*** fwi_vz, real_sim*** fwi_sxx,
     real_sim*** fwi_szx, real_sim*** fwi_szz,
-    //*****************CPU PARAMS***************
+    //*****************GPU PARAMS***************
     real_sim* d_a, real_sim* d_b, real_sim* d_K, real_sim* d_a_half, real_sim* d_b_half, real_sim* d_K_half,
-    //
-    real_sim* d_vx, real_sim* d_vz, real_sim* d_sxx, real_sim* d_szx, real_sim* d_szz,
+    real_sim* d_vx, real_sim* d_vz, real_sim* d_sxx, real_sim* d_szx, real_sim* d_szz, real_sim* d_We,
     //
     real_sim* d_fwi_vx,
     real_sim* d_fwi_vz,
@@ -423,10 +421,10 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
     //
     real_sim* d_mem_vx_x, real_sim* d_mem_vx_z, real_sim* d_mem_vz_x, real_sim* d_mem_vz_z,
     real_sim* d_mem_sxx_x, real_sim* d_mem_szx_x, real_sim* d_mem_szz_z, real_sim* d_mem_szx_z,
+
     //
     real_sim* d_lam, real_sim* d_mu,
     real_sim* d_mu_zx, real_sim* d_rho_zp, real_sim* d_rho_xp
-
 ) {
     // std::cout << "Reached Here1" << "\n";
      //const bool fwi = 1;
@@ -457,7 +455,7 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
 
     int tf, zf, xf; // Index parameters for fwi data storage
 
-    std::ofstream outFile; // file to print vz arrays
+    std::ofstream outFile, outFile1; // file to print vz arrays
 
 
     // Initial calculation of indices
@@ -489,9 +487,35 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
     gpuErrchk(cudaMemset(d_sxx, 0, size * sizeof(real_sim)));
     gpuErrchk(cudaMemset(d_szx, 0, size * sizeof(real_sim)));
     gpuErrchk(cudaMemset(d_szz, 0, size * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_We, 0, size * sizeof(real_sim)));
 
 
-    
+    gpuErrchk(cudaMemset(d_mem_vx_x, 0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_vx_z, 0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+
+    gpuErrchk(cudaMemset(d_mem_vz_x, 0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_vz_z, 0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+
+
+    gpuErrchk(cudaMemset(d_mem_sxx_x, 0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_szx_x, 0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+
+    gpuErrchk(cudaMemset(d_mem_szz_z, 0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_szx_z, 0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+
+    //int dimz = nzt;
+    //int dimx = nxt;
+    //reset_array_2d_Cuda(d_mem_vx_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_vz_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_vx_z, 2 * (npml + 1), dimx);
+    //reset_array_2d_Cuda(d_mem_vz_z, 2 * (npml + 1), dimx);
+
+    //// Allocate stress derivatives memory
+    //reset_array_2d_Cuda(d_mem_sxx_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_szx_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_szx_z, 2 * (npml + 1), dimx);
+    //reset_array_2d_Cuda(d_mem_szz_z, 2 * (npml + 1), dimx);
+
     if (fwinv) {
 
         const int nft = 1 + (nt - 1) / fwi_dt;
@@ -504,8 +528,6 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
         gpuErrchk(cudaMemset(d_fwi_sxx, 0, size * sizeof(real_sim)));
         gpuErrchk(cudaMemset(d_fwi_szx, 0, size * sizeof(real_sim)));
         gpuErrchk(cudaMemset(d_fwi_szz, 0, size * sizeof(real_sim)));
-
-
 
     }
 
@@ -572,7 +594,7 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
 
         // compute spatial stress derivatives
         kernel_two << < blocksPerGrid, threadsPerBlock >> > (ishot, nt, nzt, nxt, fpad, ppad, dt, dx, dz,
-            fdorder, d_vx, d_vz, d_sxx,
+            fdorder, d_vx, d_vz, d_sxx,d_We,
             d_szx, d_szz, d_lam, d_mu,
             d_mu_zx, d_rho_zp, d_rho_xp, npml,
             d_a, d_b, d_K, d_a_half, d_b_half, d_K_half,
@@ -582,14 +604,15 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
         gpuErrchk(cudaPeekAtLastError());
 
         gpuErrchk(cudaMemcpy(vz[0], d_vz, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
+        gpuErrchk(cudaMemcpy(szz[0], d_szz, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
 
-        if (fsurf) { // Mirroring stresses for free surface condition
+        //if (fsurf) { // Mirroring stresses for free surface condition
 
-            kernel_Thri << < blocksPerGrid, threadsPerBlock >> > (nx1, nx2, fpad, nxt, d_szx, d_szz);
+        //    kernel_Thri << < blocksPerGrid, threadsPerBlock >> > (nx1, nx2, fpad, nxt, d_szx, d_szz);
 
-        }
+        //}
 
-        gpuErrchk(cudaDeviceSynchronize());
+       //gpuErrchk(cudaDeviceSynchronize());
         gpuErrchk(cudaPeekAtLastError());
         //****************************************************************************************************************
 
@@ -612,7 +635,7 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
  
 
         // Recording the signals to the receivers
-        for (int ir = 0; ir <= 0 /*nrec*/; ir++) {
+        for (int ir = 0; ir <= nrec; ir++) {
 
             if (receiver_to_record_shot[ir] == ishot) {
 
@@ -626,19 +649,20 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
 
 
         // Printing out AASCII data for snap intervals
-      /*  if (!(it % snap_interval || it == 0)) {
-            std::cout << "Time step " << it << " of " << nt << " in forward kernel." << std::endl;
-              outFile.open("./io/snap_data/vz_snap" + std::to_string(isnap) + ".csv");
-
-              for (int j = 0; j < nzt; j++) {
-                  for (int i = 0; i < nxt; i++) {
-                      outFile << vz[j][i] << ", ";
-                  }
-                  outFile << std::endl;
-              }
-              outFile.close();
+        if (!(it % snap_interval)) {
+            if (!fwinv) {
+                std::cout << "Time step " << it << " of " << nt << " in forward kernel." << std::endl;
+                outFile.open("./io/snap_data/vz_snap" + std::to_string(isnap) + ".csv");
+                for (int j = 0; j < nzt; j++) {
+                    for (int i = 0; i < nxt; i++) {
+                        outFile << szz[j][i] << ", ";
+                    }
+                    outFile << std::endl;
+                }
+                outFile.close();
+            }
             isnap++;
-        }*/
+        }
   
     } // end of time loop
 
@@ -652,8 +676,6 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
 // ****************               CPU    ****************************
 //forward_kernel_PSV.cpp
 
-
-std::ofstream outSrcFile;
 
 
 void forward_kernel_PSV(int ishot, // shot number

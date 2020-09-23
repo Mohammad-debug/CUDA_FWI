@@ -28,7 +28,7 @@ __global__ void kernel_I(int tf, int fwi_dt, int dt, int nzt, int fwi_z1, int fw
     int fwi_dz, int fwi_dx, int nft, int nxt, int nfx,
     real_sim* fwi_sxx, real_sim* fwi_szx, real_sim* fwi_szz, real_sim* fwi_vx, real_sim*
     fwi_vz, real_sim* sxx, real_sim* szx, real_sim* szz, real_sim* vx, real_sim* vz, real_sim* mu,
-    real_sim* lam, real_sim* grad_lam, real_sim* grad_mu, real_sim* grad_rho) {
+    real_sim* lam, real_sim* grad_lam, real_sim* grad_mu, real_sim* grad_rho,  real_sim* uz, real_sim* ux) {
 
     int iz = blockIdx.x * blockDim.x + threadIdx.x;
     int ix = blockIdx.y * blockDim.y + threadIdx.y;
@@ -49,11 +49,11 @@ __global__ void kernel_I(int tf, int fwi_dt, int dt, int nzt, int fwi_z1, int fw
             s3 = (fwi_szx[offset] * szx[iz * nxt + ix]) / (mu[iz * nxt + ix] * mu[iz * nxt + ix]);
 
             // The time derivatives of the velocity may have to be computed differently
-            s4 = vx[iz * nxt + ix] * fwi_vx[offset] + vz[iz * nxt + ix] * fwi_vz[offset];
+            s4 = ux[iz * nxt + ix] * fwi_vx[offset] + uz[iz * nxt + ix] * fwi_vz[offset];
 
             grad_lam[zf * nfx + xf] += fwi_dt * dt * s1;
             grad_mu[zf * nfx + xf] += fwi_dt * dt * (s3 + s1 + s2);
-            grad_rho[zf * nfx + xf] += fwi_dt * dt * s4;
+            grad_rho[zf * nfx + xf] -= fwi_dt * dt * s4;
 
 
         }
@@ -242,8 +242,8 @@ __global__ void kernel_II(int ishot, int nt, int nzt, int nxt, int fpad, int ppa
 }
 
 __global__ void kernel_III(int ishot, int nt, int nzt, int nxt, int fpad, int ppad, real_sim dt, real_sim dx, real_sim dz,
-    int fdorder, real_sim* vx, real_sim* vz, real_sim* sxx,
-    real_sim* szx, real_sim* szz, real_sim* lam, real_sim* mu,
+    int fdorder, real_sim* vx, real_sim* vz, real_sim* sxx, 
+    real_sim* szx, real_sim* szz, real_sim* We, real_sim* lam, real_sim* mu,
     real_sim* mu_zx, real_sim* rho_zp, real_sim* rho_xp, int npml,
     real_sim* a, real_sim* b, real_sim* K, real_sim* a_half, real_sim* b_half, real_sim* K_half,
     real_sim* mem_vx_x, real_sim* mem_vx_z, real_sim* mem_vz_x, real_sim* mem_vz_z,
@@ -353,6 +353,9 @@ __global__ void kernel_III(int ishot, int nt, int nzt, int nxt, int fpad, int pp
             vx[iz * nxt + ix] += dt * rho_xp[iz * (nxt - 1) + ix] * (sxx_x + szx_z);
             vz[iz * nxt + ix] += dt * rho_zp[iz * (nxt - 1) + ix] * (szx_x + szz_z);
 
+            // Energy weights
+            We[iz * nxt + ix] += vx[iz * nxt + ix] * vx[iz * nxt + ix] + vz[iz * nxt + ix] * vz[iz * nxt + ix];
+
 
         }
         else { return; }
@@ -380,9 +383,33 @@ __global__ void kernel_IV(int nx1, int nx2, int fpad, int nxt, real_sim* szx, re
     }
 
 }
+__global__ void kernel_ux_uz(int nz1,int nz2, int nx1, int nx2, int nxt, real_sim dt, real_sim* uz, real_sim* ux, real_sim* vz, real_sim* vx) {
+
+    int iz = blockIdx.x * blockDim.x + threadIdx.x;
+    int ix = blockIdx.y * blockDim.y + threadIdx.y;
+
+   
+    if (ix < nx2 && ix >= nx1 && iz >= nz1 && iz < nz2) {
+        uz[iz * nxt + ix] += dt * vz[iz * nxt + ix];
+        ux[iz * nxt + ix] += dt * vx[iz * nxt + ix];
+
+        }
 
 
+}
 
+//*************
+
+void allocate_array_2d_Cuda(real_sim*& mArray, const int dim1, const int dim2) {
+    int size = dim1 * dim2;
+    gpuErrchk(cudaMalloc((void**)&mArray, size * sizeof(real_sim)));
+
+}
+void reset_array_2d_Cuda(real_sim*& mArray, const int dim1, const int dim2) {
+    long int size = dim1 * dim2;
+    gpuErrchk(cudaMemset(mArray, 0, size * sizeof(real_sim)));
+
+}
 
 void adjoint_kernel_PSV_GPU(int ishot, // shot index
                         // Time and space grid arguments
@@ -414,8 +441,7 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
     real_sim** grad_lam, real_sim** grad_mu, real_sim** grad_rho,
     //*****************GPU PARAMS***************
     real_sim* d_a, real_sim* d_b, real_sim* d_K, real_sim* d_a_half, real_sim* d_b_half, real_sim* d_K_half,
-    //
-    real_sim* d_vx, real_sim* d_vz, real_sim* d_sxx, real_sim* d_szx, real_sim* d_szz,
+    real_sim* d_vx, real_sim* d_vz, real_sim* d_sxx, real_sim* d_szx, real_sim* d_szz, real_sim* d_We,
     //
     real_sim* d_fwi_vx,
     real_sim* d_fwi_vz,
@@ -426,6 +452,7 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
     real_sim* d_mem_vx_x, real_sim* d_mem_vx_z, real_sim* d_mem_vz_x, real_sim* d_mem_vz_z,
     real_sim* d_mem_sxx_x, real_sim* d_mem_szx_x, real_sim* d_mem_szz_z, real_sim* d_mem_szx_z,
     //
+
     real_sim* d_grad_lam,
     real_sim* d_grad_mu,
     real_sim* d_grad_rho,
@@ -491,13 +518,50 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
 
 
     real_sim size = nzt * nxt;
+
+    real_sim* d_ux, * d_uz;
+
+    // allocating ux and uz
+    allocate_array_2d_Cuda(d_ux, nzt, nxt);
+    allocate_array_2d_Cuda(d_uz, nzt, nxt);
+
+    //reset arrays uz and ux
+    reset_array_2d_Cuda(d_ux, nzt, nxt);
+    reset_array_2d_Cuda(d_uz, nzt, nxt);
+
+
     gpuErrchk(cudaMemset(d_vz, 0, size * sizeof(real_sim)));
     gpuErrchk(cudaMemset(d_vx, 0, size * sizeof(real_sim)));
 
     gpuErrchk(cudaMemset(d_sxx, 0, size * sizeof(real_sim)));
     gpuErrchk(cudaMemset(d_szx, 0, size * sizeof(real_sim)));
     gpuErrchk(cudaMemset(d_szz, 0, size * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_We, 0, size * sizeof(real_sim)));
 
+    gpuErrchk(cudaMemset(d_mem_vx_x, 0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_vx_z, 0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+
+    gpuErrchk(cudaMemset(d_mem_vz_x, 0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_vz_z, 0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+
+
+    gpuErrchk(cudaMemset(d_mem_sxx_x,0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_szx_x,0, nzt * 2 * (npml + 1) * sizeof(real_sim)));
+
+    gpuErrchk(cudaMemset(d_mem_szz_z,0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+    gpuErrchk(cudaMemset(d_mem_szx_z, 0, nxt * 2 * (npml + 1) * sizeof(real_sim)));
+    //int dimz = nzt;
+    //int dimx = nxt;
+    //reset_array_2d_Cuda(d_mem_vx_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_vz_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_vx_z, 2 * (npml + 1), dimx);
+    //reset_array_2d_Cuda(d_mem_vz_z, 2 * (npml + 1), dimx);
+
+    //// Allocate stress derivatives memory
+    //reset_array_2d_Cuda(d_mem_sxx_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_szx_x, dimz, 2 * (npml + 1));
+    //reset_array_2d_Cuda(d_mem_szx_z, 2 * (npml + 1), dimx);
+    //reset_array_2d_Cuda(d_mem_szz_z, 2 * (npml + 1), dimx);
 
     // Gradient kernels
     //-----------------------------
@@ -533,6 +597,10 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
         // ---------------------------------------------------------
         // Computation of gradient kernels
        // gpuErrchk(cudaMemcpy(d_vz, vz[0], size * sizeof(real_sim), cudaMemcpyHostToDevice));
+         // ----------------------------
+        // creating ux and uz arrays
+        kernel_ux_uz << < blocksPerGrid, threadsPerBlock >> > (nz1,nz2,nx1,nx2,nxt, dt, d_uz,d_ux,d_vz,d_vx);
+
 
         if (fwinv && !(it % fwi_dt)) {
 
@@ -542,7 +610,7 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
                 fwi_dz, fwi_dx, nft, nxt, nfx,
                 d_fwi_sxx, d_fwi_szx, d_fwi_szz, d_fwi_vx,
                 d_fwi_vz, d_sxx, d_szx, d_szz, d_vx, d_vz, d_mu,
-                d_lam, d_grad_lam, d_grad_mu, d_grad_rho);
+                d_lam, d_grad_lam, d_grad_mu, d_grad_rho,d_uz,d_ux);
 
         }
 
@@ -560,12 +628,13 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
             d_mem_vx_x, d_mem_vx_z, d_mem_vz_x, d_mem_vz_z,
             d_mem_sxx_x, d_mem_szx_x, d_mem_szz_z, d_mem_szx_z, fsurf);
 
+
         gpuErrchk(cudaPeekAtLastError());
 
         // compute spatial stress derivatives
         kernel_III << < blocksPerGrid, threadsPerBlock >> > (ishot, nt, nzt, nxt, fpad, ppad, dt, dx, dz,
             fdorder, d_vx, d_vz, d_sxx,
-            d_szx, d_szz, d_lam, d_mu,
+            d_szx, d_szz,d_We, d_lam, d_mu,
             d_mu_zx, d_rho_zp, d_rho_xp, npml,
             d_a, d_b, d_K, d_a_half, d_b_half, d_K_half,
             d_mem_vx_x, d_mem_vx_z, d_mem_vz_x, d_mem_vz_z,
@@ -573,24 +642,21 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
         gpuErrchk(cudaPeekAtLastError());
 
 
+        //if (fsurf) { // Mirroring stresses for free surface condition
 
+        //    kernel_IV << < blocksPerGrid, threadsPerBlock >> > (nx1, nx2, fpad, nxt, d_szx, d_szz);
+        //    gpuErrchk(cudaPeekAtLastError());
 
-        if (fsurf) { // Mirroring stresses for free surface condition
-
-            kernel_IV << < blocksPerGrid, threadsPerBlock >> > (nx1, nx2, fpad, nxt, d_szx, d_szz);
-            gpuErrchk(cudaPeekAtLastError());
-
-        }
+        //}
         gpuErrchk(cudaDeviceSynchronize());
 
-
-      //  gpuErrchk(cudaMemcpy(vz[0], d_vz, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
+        gpuErrchk(cudaMemcpy(vz[0], d_vz, size * sizeof(real_sim), cudaMemcpyDeviceToHost));
 
         //****************************************************************************
 
                 // Adding Velocity update related sources
                 //----------------------------------------
-        for (int is = 0; is <= 0 /*nsrc*/; is++) {
+        for (int is = 0; is <=  nsrc; is++) {
 
             if (source_to_fire_shot[is] == ishot) {
                 switch (src_comp[is]) {// defines the signal type
@@ -604,13 +670,14 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
 
         // Printing out AASCII data for snap intervals
         if (!(it % snap_interval || it == 0)) {
-            std::cout << "Time step " << it << " of " << nt << " in adjoint kernel." << std::endl;
+           // std::cout << "Time step " << it << " of " << nt << " in adjoint kernel." << std::endl;
             isnap++;
         }
 
     } // end of time loop
 
-    
+    cudaFree(d_ux);
+    cudaFree(d_uz);
 
 }
 // *****************  CPU**********************
