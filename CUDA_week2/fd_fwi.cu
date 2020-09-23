@@ -34,8 +34,8 @@ void FDFWI::parse_configuration(const char* configuration_file_relative_path, FD
     z1 = reader.GetInteger("full_waveform_inversion", "top_grid", 0);
     z2 = reader.GetInteger("full_waveform_inversion", "bottom_grid", 0);
 
-    if (z2 == 0) z2 = grid.nz - 1;
-    if (x2 == 0) x2 = grid.nx - 1;
+    if (z2 == 0) z2 = grid.nzt - 1;
+    if (x2 == 0) x2 = grid.nxt - 1;
 
     // Padding of the grids from fdorder and PML layers
     x1 += grid.ppad;
@@ -54,7 +54,7 @@ void FDFWI::parse_configuration(const char* configuration_file_relative_path, FD
     std::cout << std::endl << "FWI:" << std::endl;
     std::cout << "fwi.dt = " << dt << ", fwi.dx = " << dx << ", fwi.dz = " << dz << std::endl;
     std::cout << "fwi.x1 = " << x1 << ", fwi.x2 = " << x2 << std::endl;
-    std::cout << "fwi.z1 = " << x1 << ", fwi.z2 = " << x2 << std::endl;
+    std::cout << "fwi.z1 = " << z1 << ", fwi.z2 = " << z2 << std::endl;
     std::cout << std::endl;
 
 
@@ -66,6 +66,7 @@ void FDFWI::allocate_fwi(int dimt, int dimz, int dimx) {
     // Allocates velocity and stress tensors
     allocate_array_3d(vx, dimt, dimz, dimx);
     allocate_array_3d(vz, dimt, dimz, dimx);
+
     allocate_array_3d(sxx, dimt, dimz, dimx);
     allocate_array_3d(szx, dimt, dimz, dimx);
     allocate_array_3d(szz, dimt, dimz, dimx);
@@ -76,9 +77,28 @@ void FDFWI::allocate_fwi(int dimt, int dimz, int dimx) {
 
 }
 
+void FDFWI::reset_fwi_kernel(int dimt, int dimz, int dimx, bool grad_reset) {
+    // Reset velocity and stress tensors
+    reset_array_3d(vx, dimt, dimz, dimx);
+    reset_array_3d(vz, dimt, dimz, dimx);
+
+    reset_array_3d(sxx, dimt, dimz, dimx);
+    reset_array_3d(szx, dimt, dimz, dimx);
+    reset_array_3d(szz, dimt, dimz, dimx);
+
+    if (grad_reset) {
+
+        reset_array_2d(grad_rho, dimz, dimx);
+        reset_array_2d(grad_lam, dimz, dimx);
+        reset_array_2d(grad_mu, dimz, dimx);
+    }
+
+}
+
 
 void FDFWI::deallocate_fwi(int dimt, int dimz) {
     // Deallocates velocity and stress tensors
+
     deallocate_array_3d(vx, dimt, dimz);
     deallocate_array_3d(vz, dimt, dimz);
     deallocate_array_3d(sxx, dimt, dimz);

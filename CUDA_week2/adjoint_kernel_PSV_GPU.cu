@@ -617,6 +617,7 @@ void adjoint_kernel_PSV_GPU(int ishot, // shot index
 
 
 
+
 void adjoint_kernel_PSV(int ishot, // shot index
                         // Time and space grid arguments
     int nt, int nzt, int nxt, int fpad, int ppad,
@@ -625,7 +626,7 @@ void adjoint_kernel_PSV(int ishot, // shot index
     real_sim* hc, int fdorder,
     // Wave arguments
     real_sim** vx, real_sim** vz,
-    real_sim** sxx, real_sim** szx, real_sim** szz,
+    real_sim** sxx, real_sim** szx, real_sim** szz, real_sim** We,
     // Medium arguments
     real_sim** lam, real_sim** mu,
     real_sim** mu_zx, real_sim** rho_zp, real_sim** rho_xp,
@@ -641,8 +642,8 @@ void adjoint_kernel_PSV(int ishot, // shot index
     // FWI arguments
     bool fwinv, int fwi_dt, int fwi_dx, int fwi_dz,
     int fwi_x1, int fwi_x2, int fwi_z1, int fwi_z2,
-    real_sim*** fwi_vx, real_sim*** fwi_vz, real_sim*** fwi_sxx,
-    real_sim*** fwi_szx, real_sim*** fwi_szz,
+    real_sim*** fwi_vx, real_sim*** fwi_vz,
+    real_sim*** fwi_sxx, real_sim*** fwi_szx, real_sim*** fwi_szz,
     // Gradient of the materials
     real_sim** grad_lam, real_sim** grad_mu, real_sim** grad_rho) {
 
@@ -709,8 +710,20 @@ void adjoint_kernel_PSV(int ishot, // shot index
             sxx[iz][ix] = 0.0;
             szx[iz][ix] = 0.0;
             szz[iz][ix] = 0.0;
+            We[iz][ix] = 0.0;
         }
     }
+
+    // Creating ux and uy arrays
+    real_sim** ux, ** uz;
+
+    // allocating ux and uz
+    allocate_array_2d(ux, nzt, nxt);
+    allocate_array_2d(uz, nzt, nxt);
+
+    //reset arrays uz and ux
+    reset_array_2d(ux, nzt, nxt);
+    reset_array_2d(uz, nzt, nxt);
 
     // Gradient kernels
     //-----------------------------
@@ -733,6 +746,18 @@ void adjoint_kernel_PSV(int ishot, // shot index
     isnap = 0;
     for (int it = nt - 1; it >= 0; it--) {
 
+        // ----------------------------
+        // creating ux and uz arrays
+        for (int iz = nz1; iz < nz2; iz++) {
+            for (int ix = nx1; ix < nx2; ix++) {
+
+                uz[iz][ix] += dt * vz[iz][ix];
+                ux[iz][ix] += dt * vx[iz][ix];
+
+            }
+        }
+
+
         // ---------------------------------------------------------
         // Computation of gradient kernels
         if (fwinv && !(it % fwi_dt)) {
@@ -745,6 +770,7 @@ void adjoint_kernel_PSV(int ishot, // shot index
                 for (int ix = fwi_x1; ix < fwi_x2; ix += fwi_dx) {
                     xf = (ix - fwi_x1) / fwi_dx; // x index for fwi gradient storage
 
+
                     s1 = (fwi_sxx[tf][zf][xf] + fwi_szz[tf][zf][xf]) * (sxx[iz][ix] + szz[iz][ix])
                         * 0.25 / ((lam[iz][ix] + mu[iz][ix]) * (lam[iz][ix] + mu[iz][ix]));
 
@@ -753,15 +779,20 @@ void adjoint_kernel_PSV(int ishot, // shot index
 
                     s3 = (fwi_szx[tf][zf][xf] * szx[iz][ix]) / (mu[iz][ix] * mu[iz][ix]);
 
+
+
                     // The time derivatives of the velocity may have to be computed differently
-                    s4 = vx[iz][ix] * fwi_vx[tf][zf][xf] + vz[iz][ix] * fwi_vz[tf][zf][xf];
+                    s4 = ux[iz][ix] * fwi_vx[tf][zf][xf] + uz[iz][ix] * fwi_vz[tf][zf][xf];
 
                     grad_lam[zf][xf] += fwi_dt * dt * s1;
                     grad_mu[zf][xf] += fwi_dt * dt * (s3 + s1 + s2);
-                    grad_rho[zf][xf] += fwi_dt * dt * s4;
+                    grad_rho[zf][xf] -= fwi_dt * dt * s4;
 
+                    //std::cout << "grad_lam: " << grad_lam[zf][xf] << ", grad_mu: " << grad_mu[zf][xf] 
+                    //<< ", grad_rho: " << grad_rho[zf][xf] <<std::endl;
                 }
             }
+
         }
 
         // --------------------------------------------------------
@@ -960,6 +991,9 @@ void adjoint_kernel_PSV(int ishot, // shot index
                     vx[iz][ix] += dt * rho_xp[iz][ix] * (sxx_x + szx_z);
                     vz[iz][ix] += dt * rho_zp[iz][ix] * (szx_x + szz_z);
 
+                    // Energy weights
+                    We[iz][ix] += vx[iz][ix] * vx[iz][ix] + vz[iz][ix] * vz[iz][ix];
+
                 }
             }
 
@@ -973,24 +1007,29 @@ void adjoint_kernel_PSV(int ishot, // shot index
 
         // Adding Velocity update related sources
         //----------------------------------------
-        for (int is = 0; is <= 0; is++) {
+        for (int is = 0; is < nsrc; is++) {
 
             if (source_to_fire_shot[is] == ishot) {
                 switch (src_comp[is]) {// defines the signal type
                 case(2): // vz component only
+
                     vz[src_z[is]][src_x[is]] += src_signal[is][it];
+
                 }
             }
         }
 
-        // ---------------------------------------
 
         // Printing out AASCII data for snap intervals
         if (!(it % snap_interval || it == 0)) {
-            std::cout << "Time step " << it << " of " << nt << " in adjoint kernel." << std::endl;
+            //std::cout<< "Time step " << it << " of " << nt << " in adjoint kernel." << std::endl;
             isnap++;
         }
 
     } // end of time loop
+
+    // allocating ux and uz
+    deallocate_array_2d(ux, nzt);
+    deallocate_array_2d(uz, nzt);
 
 }

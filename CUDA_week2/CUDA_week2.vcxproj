@@ -80,6 +80,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <CudaCompile Include="adjoint_kernel_PSV_GPU.cu" />
+    <CudaCompile Include="checkfd_ssg_elastic.cu" />
     <CudaCompile Include="fd_cpml.cu" />
     <CudaCompile Include="fd_fwi.cu" />
     <CudaCompile Include="fd_grid.cu" />
@@ -89,7 +90,9 @@
     <CudaCompile Include="fd_wave_model.cu" />
     <CudaCompile Include="forward_kernel_PSV_GPU.cu" />
     <CudaCompile Include="fwi_step_length_estimation.cu" />
+    <CudaCompile Include="holbergcoeff.cu" />
     <CudaCompile Include="main.cu" />
+    <CudaCompile Include="solvelin.cu" />
     <CudaCompile Include="util.cu" />
   </ItemGroup>
   <ItemGroup>

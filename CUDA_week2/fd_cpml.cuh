@@ -41,6 +41,8 @@ public:
 
 	void allocate_memory_arrays(int dimz, int dimx);
 
+	void reset_memory_arrays(int dimz, int dimx);
+
 	void deallocate_memory_arrays(int dimz);
 
 };

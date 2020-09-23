@@ -13,6 +13,7 @@
 #include "util.cu"
 
 
+
 int FDCpml::npml; // number of PML grids in each side
 real_sim FDCpml::dh; // Spacing of the grid in PML layers
 real_sim FDCpml::fpml; // Frequency of PML layer (Hz)
@@ -227,6 +228,25 @@ void FDCpml::allocate_memory_arrays(int dimz, int dimx) {
 
 }
 
+void FDCpml::reset_memory_arrays(int dimz, int dimx) {
+    // Allocates memory arrays for velocity and stress derivatives
+
+    std::cout << "Resetting PML memory arrays." << std::endl;
+    // Allocate velocity derivatives memory
+    reset_array_2d(mem_vx_x, dimz, 2 * (npml + 1));
+    reset_array_2d(mem_vz_x, dimz, 2 * (npml + 1));
+    reset_array_2d(mem_vx_z, 2 * (npml + 1), dimx);
+    reset_array_2d(mem_vz_z, 2 * (npml + 1), dimx);
+
+    // Allocate stress derivatives memory
+    reset_array_2d(mem_sxx_x, dimz, 2 * (npml + 1));
+    reset_array_2d(mem_szx_x, dimz, 2 * (npml + 1));
+    reset_array_2d(mem_szx_z, 2 * (npml + 1), dimx);
+    reset_array_2d(mem_szz_z, 2 * (npml + 1), dimx);
+
+    std::cout << "PML memory arrays reset." << std::endl;
+
+}
 
 void FDCpml::deallocate_pml() {
     // Deallocates the static PML arrays
@@ -259,54 +279,6 @@ void FDCpml::deallocate_memory_arrays(int dimz) {
     deallocate_array_2d(mem_szx_x, dimz);
     deallocate_array_2d(mem_szx_z, tpml);
     deallocate_array_2d(mem_szz_z, tpml);
-
-    std::cout << "PML memory arrays deallocated." << std::endl;
-
-}
-
-void allocate_pml_memory_arrays(int npml, int dimz, int dimx,
-    real_sim** mem_vx_x, real_sim** mem_vz_x,
-    real_sim** mem_vx_z, real_sim** mem_vz_z,
-    real_sim** mem_sxx_x, real_sim** mem_szx_x,
-    real_sim** mem_szx_z, real_sim** mem_szz_z) {
-    // Allocates memory arrays for velocity and stress derivatives
-
-    std::cout << "Allocating PML memory arrays." << std::endl;
-    // Allocate velocity derivatives memory
-    allocate_array_2d(mem_vx_x, dimz, 2 * (npml + 1));
-    allocate_array_2d(mem_vz_x, dimz, 2 * (npml + 1));
-    allocate_array_2d(mem_vx_z, 2 * (npml + 1), dimx);
-    allocate_array_2d(mem_vz_z, 2 * (npml + 1), dimx);
-
-    // Allocate stress derivatives memory
-    allocate_array_2d(mem_sxx_x, dimz, 2 * (npml + 1));
-    allocate_array_2d(mem_szx_x, dimz, 2 * (npml + 1));
-    allocate_array_2d(mem_szx_z, 2 * (npml + 1), dimx);
-    allocate_array_2d(mem_szz_z, 2 * (npml + 1), dimx);
-
-    std::cout << "PML memory arrays allocated." << std::endl;
-
-}
-
-void deallocate_pml_memory_arrays(int npml, int dimz,
-    real_sim** mem_vx_x, real_sim** mem_vz_x,
-    real_sim** mem_vx_z, real_sim** mem_vz_z,
-    real_sim** mem_sxx_x, real_sim** mem_szx_x,
-    real_sim** mem_szx_z, real_sim** mem_szz_z) {
-    // Allocates memory arrays for velocity and stress derivatives
-
-    std::cout << "Deallocating PML memory arrays." << std::endl;
-    // Allocate velocity derivatives memory
-    deallocate_array_2d(mem_vx_x, dimz);
-    deallocate_array_2d(mem_vz_x, dimz);
-    deallocate_array_2d(mem_vx_z, 2 * (npml + 1));
-    deallocate_array_2d(mem_vz_z, 2 * (npml + 1));
-
-    // Allocate stress derivatives memory
-    deallocate_array_2d(mem_sxx_x, dimz);
-    deallocate_array_2d(mem_szx_x, dimz);
-    deallocate_array_2d(mem_szx_z, 2 * (npml + 1));
-    deallocate_array_2d(mem_szz_z, 2 * (npml + 1));
 
     std::cout << "PML memory arrays deallocated." << std::endl;
 

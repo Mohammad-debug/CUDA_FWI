@@ -18,7 +18,11 @@ public:
 	real_sim** sxx, ** szz; // Stress tensors (Translational)
 	real_sim** szx; // Stress tensors (Rotational)
 
+	real_sim** We; // Energy Weights for source and receiver
+
 	void allocate_wave(int dimz, int dimx); // Allocate velocity and stress tensors
+
+	void reset_kernel(int dimz, int dimx); // resets to zero
 
 	void deallocate_wave(int dimz); // Deallocates velocity and stress tensors
 

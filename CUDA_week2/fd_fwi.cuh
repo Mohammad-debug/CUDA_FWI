@@ -28,6 +28,8 @@ public:
 
 	void allocate_fwi(int dimt, int dimz, int dimx); // Allocate velocity and stress tensors
 
+	void reset_fwi_kernel(int dimt, int dimz, int dimx, bool grad_reset); // Reset the kernels after each iteration
+
 	void deallocate_fwi(int dimt, int dimz); // Deallocates velocity and stress tensors
 
 };

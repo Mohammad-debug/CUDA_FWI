@@ -15,6 +15,7 @@ public:
 	// Scalar elastic material parameters
 	real_sim scalar_rho, scalar_vp, scalar_vs;
 	real_sim scalar_mu, scalar_lam;
+	real_sim** rho_old, ** mu_old, ** lam_old;
 
 	// 2D model space parameters
 	real_sim** rho, ** mu, ** lam; // Lami's parameters
@@ -40,6 +41,14 @@ public:
 	void deallocate_medium(int dimz); // Deallocate lame's parameters and rho
 
 	void deallocate_medium_av(int dimz); // Deallocate average medium parameters 
+	// temporary ones
+	void stagger_over_grid_modify(int dimz, int dimx); // stagger scalar lami parameter over grid
+
+	void fwi_grad_update(real_sim** mat, real_sim** mat_new, real_sim** grad_mat,
+		real_sim step_length, int dimz, int dimx,
+		int z1, int x1, int fwi_dz, int fwi_dx, bool override, int matType);
+
+	void medium_average(real_sim& C_lam, real_sim& C_mu, real_sim& C_rho, int dimz, int dimx);
 
 };
 

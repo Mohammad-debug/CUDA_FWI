@@ -653,6 +653,9 @@ void forward_kernel_PSV_GPU(int ishot, // shot number
 //forward_kernel_PSV.cpp
 
 
+std::ofstream outSrcFile;
+
+
 void forward_kernel_PSV(int ishot, // shot number
                         // Time and space grid arguments
     int nt, int nzt, int nxt, int fpad, int ppad,
@@ -661,7 +664,7 @@ void forward_kernel_PSV(int ishot, // shot number
     real_sim* hc, int fdorder,
     // Wave arguments
     real_sim** vx, real_sim** vz,
-    real_sim** sxx, real_sim** szx, real_sim** szz,
+    real_sim** sxx, real_sim** szx, real_sim** szz, real_sim** We,
     // Medium arguments
     real_sim** lam, real_sim** mu,
     real_sim** mu_zx, real_sim** rho_zp, real_sim** rho_xp,
@@ -676,20 +679,33 @@ void forward_kernel_PSV(int ishot, // shot number
     real_sim** src_signal, ivec source_to_fire_shot,
     // Receiver arguments
     int nrec, ivec rec_x, ivec rec_z, ivec rec_comp,
-    real_sim** rec_signal, ivec receiver_to_record_shot,//shot_to_fire
+    real_sim** rec_signal, ivec receiver_to_record_shot,
     // FWI arguments
     bool fwinv, int fwi_dt, int fwi_dx, int fwi_dz,
     int fwi_x1, int fwi_x2, int fwi_z1, int fwi_z2,
-    real_sim*** fwi_vx, real_sim*** fwi_vz, real_sim*** fwi_sxx,
-    real_sim*** fwi_szx, real_sim*** fwi_szz) {
-    
+    real_sim*** fwi_vx, real_sim*** fwi_vz,
+    real_sim*** fwi_sxx, real_sim*** fwi_szx, real_sim*** fwi_szz) {
+
+    //const bool fwi = 1;
+    // int nt = number of timesteps
+    // int nz1, nz2, nx1, nx2 = start and end grids along z and x directions
+    // int dt, dx, dz = grid spacing in time and space
+    // int* hc = holberg coefficients
+    // real_sim **&vx, **&vz, **&sxx, **&szx, **&szz, // wave parameters (particle velocity and stresses)
+    // real_sim **&lam, **&mu, **&mu_zx, **&rho_zp, **&rho_xp // medium parameters (lamé's parameters')
+
+    // real_sim *a, *b, *K;// CPML parameters
+    // real_sim *a_half, *b_half, *K_half // CPML interpolated parameters
+    // real_sim ** mem_vx_x, ** mem_vx_z, ** mem_vz_x, ** mem_vz_z; // PML velocity derivative memory
+    // real_sim **&mem_sxx_x, **&mem_szx_x, **&mem_szz_z, real_sim **&mem_szx_z // PML stress derivative memory
+    // bool fsurf :: free surface on the top
 
 
-     // Source arguments
-     // int nsrc = number of sources
-     // int **src_loc = grid location of source + source parameter type for eg exploxive, vz only etc
-     // real_sim ** src_signal = signal values for the sources
-    double start1 = clock();
+    // Source arguments
+    // int nsrc = number of sources
+    // int **src_loc = grid location of source + source parameter type for eg exploxive, vz only etc
+    // real_sim ** src_signal = signal values for the sources
+
     real_sim sxx_x, szx_x, szx_z, szz_z; // spatial stress derivatives
     real_sim vx_x, vx_z, vz_x, vz_z; // spatial velocity derivatives
     int nz1, nz2, nx1, nx2; // The computational grid boundaries
@@ -698,9 +714,8 @@ void forward_kernel_PSV(int ishot, // shot number
 
     int tf, zf, xf; // Index parameters for fwi data storage
 
-    std::ofstream outFile; // file to print vz arrays
-    clock_t start = 0, end = 0;
-    double cpu_time_used;
+    std::ofstream outFile, outFile1; // file to print vz arrays
+
 
     // Initial calculation of indices
     //---------------------------------------------
@@ -723,12 +738,6 @@ void forward_kernel_PSV(int ishot, // shot number
 
     // Reset kernels
     // -----------------------------------------------------
-   //****************************************************************************************
-
-
-    //**************************************************************************************************
-
-
     for (int iz = 0; iz < nzt; iz++) {
         for (int ix = 0; ix < nxt; ix++) {
             // Wave velocity and stress tensor arrays
@@ -737,10 +746,10 @@ void forward_kernel_PSV(int ishot, // shot number
             sxx[iz][ix] = 0.0;
             szx[iz][ix] = 0.0;
             szz[iz][ix] = 0.0;
-
+            We[iz][ix] = 0.0;
         }
     }
-    // std::cout << "Reached Here1.5" << "\n";
+
     if (fwinv) {
         const int nft = 1 + (nt - 1) / fwi_dt;
         const int nfz = 1 + (fwi_z2 - fwi_z1) / fwi_dz;
@@ -760,20 +769,18 @@ void forward_kernel_PSV(int ishot, // shot number
                 }
             }
         }
-
     }
 
     // Start of time loop
     isnap = 0;
-
     for (int it = 0; it < nt; it++) {
+
 
         // ---------------------------------------------------------
         // Storing velocity  & stress tensors for gradient calculations for full waveform inversion
         if (fwinv && !(it % fwi_dt)) {
             tf = it / fwi_dt; // t index for fwi gradient storage
-
-           std::cout<<"fwi time: " << it << ", forward simulation" << std::endl;
+            //std::cout<<"fwi time: " << it << ", forward simulation" << std::endl;
             for (int iz = fwi_z1; iz < fwi_z2; iz += fwi_dz) { // storing only a portion and with grid inteval
                 zf = (iz - fwi_z1) / fwi_dz; // z index for fwi gradient storage
 
@@ -783,16 +790,17 @@ void forward_kernel_PSV(int ishot, // shot number
                     fwi_sxx[tf][zf][xf] = sxx[iz][ix];
                     fwi_szx[tf][zf][xf] = szx[iz][ix];
                     fwi_szz[tf][zf][xf] = szz[iz][ix];
-                    fwi_vx[tf][zf][xf] = vx[iz][ix];
-                    fwi_vz[tf][zf][xf] = vz[iz][ix];
+
+                    fwi_vx[tf][zf][xf] = vx[iz][ix] / dt;
+                    fwi_vz[tf][zf][xf] = vz[iz][ix] / dt;
 
                 }
             }
         }
 
         // --------------------------------------------------------
-      //  std::cout << "Reached Here2" << "\n";
-        start = clock();
+
+
         // Time integration of dynamic stress fields
         switch (fdorder) {
         case(2):
@@ -911,9 +919,9 @@ void forward_kernel_PSV(int ishot, // shot number
                 }
             }
 
-            // std::cout << "Reached Here3" << "\n";
 
-             // updating velocity tensors
+
+            // updating velocity tensors
             for (int iz = nz1; iz < nz2; iz++) {
                 for (int ix = nx1; ix < nx2; ix++) {
 
@@ -986,6 +994,9 @@ void forward_kernel_PSV(int ishot, // shot number
                     vx[iz][ix] += dt * rho_xp[iz][ix] * (sxx_x + szx_z);
                     vz[iz][ix] += dt * rho_zp[iz][ix] * (szx_x + szz_z);
 
+                    // Energy weights
+                    We[iz][ix] += vx[iz][ix] * vx[iz][ix] + vz[iz][ix] * vz[iz][ix];
+
                 }
             }
 
@@ -997,24 +1008,18 @@ void forward_kernel_PSV(int ishot, // shot number
             exit(0);
         } // end of switch
 
-
-        end = clock();
-        cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-
-        //  printf("\nExecution time Gpu = %f\n", cpu_time_used);
-
-
-        start = clock();
-
         // Adding Velocity update related sources
-     //   std::cout << "Reached Here4" << "\n";
         //--------------------------
         for (int is = 0; is < nsrc; is++) {
 
             if (source_to_fire_shot[is] == ishot) {
                 switch (src_comp[is]) {// defines the signal type
-                case(2): // vz component only
+                case(2): // vz component only (currently displacement type)
                     vz[src_z[is]][src_x[is]] += src_signal[is][it];
+                    //dt * rho_zp[src_z[is]][src_x[is]] * src_signal[is][it] * dxi * dzi;
+                    //std::cout <<"signal: " << is << " , ts:" << it <<", " << vz[src_z[is]][src_x[is]] <<std::endl;
+
+
                 }
             }
         }
@@ -1022,45 +1027,37 @@ void forward_kernel_PSV(int ishot, // shot number
         // ------------------------------------
 
         // Recording the signals to the receivers
-        for (int ir = 0; ir <=0 /*nrec*/; ir++) {
-           
+        for (int ir = 0; ir < nrec; ir++) {
             if (receiver_to_record_shot[ir] == ishot) {
-               
                 switch (rec_comp[ir]) {// defines the signal type
                 case(2): // vz component only
-                    rec_signal[ir][it] = vz[rec_z[ir]][rec_x[ir]];
-                }
 
+                    rec_signal[ir][it] = vz[rec_z[ir]][rec_x[ir]];
+
+                    //std::cout <<"receiver: " << ir << " , ts:" << it <<", " << vz[rec_z[ir]][rec_x[ir]]<<std::endl;
+
+                }
             }
         }
-
 
         // Printing out AASCII data for snap intervals
-        if (!(it % snap_interval || it == 0)) {
-            std::cout << "Time step " << it << " of " << nt << " in forward kernel." << std::endl;
-            //outFile.open("./io/snap_data/vz_snap" + std::to_string(isnap) + ".csv");
-          /*  for (int j = 0; j < nzt; j++) {
-                for (int i = 0; i < nxt; i++) {
-                    outFile << vz[j][i] << ", ";
+
+        if (!(it % snap_interval)) {
+            if (!fwinv) {
+                std::cout << "Time step " << it << " of " << nt << " in forward kernel." << std::endl;
+                outFile.open("./io/snap_data/vz_snap" + std::to_string(isnap) + ".csv");
+                for (int j = 0; j < nzt; j++) {
+                    for (int i = 0; i < nxt; i++) {
+                        outFile << szz[j][i] << ", ";
+                    }
+                    outFile << std::endl;
                 }
-                outFile << std::endl;
+                outFile.close();
             }
-            outFile.close();*/
             isnap++;
         }
-        /*end = clock();
-        cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;*/
 
-        //  printf("\nExecution time after Gpu = %f\n", cpu_time_used);
-
-
-
-          // std::cout << "Reached Here6" << "\n";
     } // end of time loop
-    end = clock();
-    cpu_time_used = ((double)(end - start1)) / CLOCKS_PER_SEC;
-
-   // printf("\nKERNEL TIME = %f\n", cpu_time_used);
 
 
 }

@@ -8,6 +8,7 @@
 
 #include "globvar.cuh"
 
+
 void forward_kernel_PSV(int ishot, // shot number
                         // Time and space grid arguments
     int nt, int nzt, int nxt, int fpad, int ppad,
@@ -16,7 +17,7 @@ void forward_kernel_PSV(int ishot, // shot number
     real_sim* hc, int fdorder,
     // Wave arguments
     real_sim** vx, real_sim** vz,
-    real_sim** sxx, real_sim** szx, real_sim** szz,
+    real_sim** sxx, real_sim** szx, real_sim** szz, real_sim** We,
     // Medium arguments
     real_sim** lam, real_sim** mu,
     real_sim** mu_zx, real_sim** rho_zp, real_sim** rho_xp,
@@ -35,9 +36,8 @@ void forward_kernel_PSV(int ishot, // shot number
     // FWI arguments
     bool fwinv, int fwi_dt, int fwi_dx, int fwi_dz,
     int fwi_x1, int fwi_x2, int fwi_z1, int fwi_z2,
-    real_sim*** fwi_vx, real_sim*** fwi_vz, real_sim*** fwi_sxx,
-    real_sim*** fwi_szx, real_sim*** fwi_szz
-);
+    real_sim*** fwi_vx, real_sim*** fwi_vz,
+    real_sim*** fwi_sxx, real_sim*** fwi_szx, real_sim*** fwi_szz);
 
 
 void adjoint_kernel_PSV(int ishot, // shot index
@@ -48,7 +48,7 @@ void adjoint_kernel_PSV(int ishot, // shot index
     real_sim* hc, int fdorder,
     // Wave arguments
     real_sim** vx, real_sim** vz,
-    real_sim** sxx, real_sim** szx, real_sim** szz,
+    real_sim** sxx, real_sim** szx, real_sim** szz, real_sim** We,
     // Medium arguments
     real_sim** lam, real_sim** mu,
     real_sim** mu_zx, real_sim** rho_zp, real_sim** rho_xp,
@@ -64,12 +64,12 @@ void adjoint_kernel_PSV(int ishot, // shot index
     // FWI arguments
     bool fwinv, int fwi_dt, int fwi_dx, int fwi_dz,
     int fwi_x1, int fwi_x2, int fwi_z1, int fwi_z2,
-    real_sim*** fwi_vx, real_sim*** fwi_vz, real_sim*** fwi_sxx,
-    real_sim*** fwi_szx, real_sim*** fwi_szz,
+    real_sim*** fwi_vx, real_sim*** fwi_vz,
+    real_sim*** fwi_sxx, real_sim*** fwi_szx, real_sim*** fwi_szz,
     // Gradient of the materials
-    real_sim** grad_lam, real_sim** grad_mu, real_sim** grad_rho
-);
+    real_sim** grad_lam, real_sim** grad_mu, real_sim** grad_rho);
 
+real_sim calc_opt_step(real_sim* L2_test, real_sim* step_length);
 
 //*********************************
 void forward_kernel_PSV_GPU(int ishot, // shot number

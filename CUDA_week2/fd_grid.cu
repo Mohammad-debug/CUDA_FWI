@@ -12,7 +12,6 @@
 #include "INIReader.cuh"
 //#include "../ext/inih/INIReader.h"
 
-
 void FDGrid::parse_configuration(const char* configuration_file_relative_path) {
     //
     std::cout << "parsing FD GRID from file '"
@@ -27,17 +26,15 @@ void FDGrid::parse_configuration(const char* configuration_file_relative_path) {
     real_sim t = reader.GetReal("grid", "time", 0); //time in seconds
 
     nx = reader.GetInteger("grid", "nx", 201);
-   nx = 50;
     //ny = reader.GetInteger("domain", "ny", 0);
     nz = reader.GetInteger("grid", "nz", 101);
-    nz = 50;
+
     dx = reader.GetReal("grid", "dx", 1.25);
     //dy = reader.GetReal("domain", "dy", 0.0);
     dz = reader.GetReal("grid", "dz", 1.25);
     dt = reader.GetReal("grid", "dt", 0.00025);
 
     nt = reader.GetInteger("grid", "nt", ceil(t / dt));
-  //  nt = 873;
     t = (nt - 1) * dt;
 
     snap_interval = reader.GetInteger("grid", "snap_interval", nt - 1);

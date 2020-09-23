@@ -72,7 +72,38 @@ void allocate_array_3d(T***& mArray, const int dim1, const int dim2, const int d
 
 
 }
+template <class T>
+void reset_array_1d(T*& mArray, const int dim1) {
 
+    for (int i = 0; i < dim1; i++) {
+        mArray[i] = 0;
+    }
+}
+
+
+template <class T>
+void reset_array_2d(T**& mArray, const int dim1, const int dim2) {
+
+    for (int i = 0; i < dim1; i++) {
+        for (int j = 0; j < dim2; j++) {
+            mArray[i][j] = 0;
+        }
+    }
+}
+
+template <class T>
+void reset_array_3d(T***& mArray, const int dim1, const int dim2, const int dim3) {
+
+    for (int i = 0; i < dim1; i++) {
+        for (int j = 0; j < dim2; j++) {
+            for (int k = 0; k < dim3; k++) {
+
+                mArray[i][j][k] = 0;
+
+            }
+        }
+    }
+}
 
 template <class T>
 void deallocate_array_1d(T*& mArray) {

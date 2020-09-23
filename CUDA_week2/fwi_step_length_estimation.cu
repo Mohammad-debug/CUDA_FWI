@@ -8,8 +8,9 @@
 
 #include "fd_wave_model.cuh"
 #include "fd_kernel.cuh"
-#include "ext.h"
+#include "ext.cuh"
 #include "globvar.cuh"
+
 std::ofstream outReceiverFile1, outFile1; // output file to store receiver data
 
 real_sim FDWaveModel::fwi_step_length_estimation(real_sim est_step_length, real_sim* L2_test) {
@@ -86,6 +87,7 @@ real_sim FDWaveModel::fwi_step_length_estimation(real_sim est_step_length, real_
                 // FORWARD SIMULATION
                 // -----------------------------------------------------------
                 // calling forward simulation for shot i
+
                 forward_kernel_PSV(ishot, grid.nt, grid.nzt, grid.nxt, grid.fpad, grid.ppad,
                     grid.dt, grid.dx, grid.dz, grid.snap_interval, grid.fsurf,
                     hc, fdorder, wave.vx, wave.vz, wave.sxx, wave.szx, wave.szz, wave.We,
